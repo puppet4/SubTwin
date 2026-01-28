@@ -49,6 +49,10 @@
   let dragOffset = { x: 0, y: 0 };
   let savedPosition = null; // { x百分比, y百分比 }
 
+  // 播放器开关按钮和设置面板
+  let toggleButton = null;
+  let settingsPanel = null;
+
   // ========== 缓存持久化 ==========
 
   function getCacheKey(text) {
@@ -122,6 +126,473 @@
   }
 
   // ========== UI：翻译字幕显示 ==========
+
+  /**
+   * 创建播放器上的开关按钮和设置面板
+   */
+  function createToggleButton() {
+    if (toggleButton) {
+      updateToggleButton();
+      return;
+    }
+
+    const rightControls = document.querySelector(".ytp-right-controls");
+    if (!rightControls) {
+      setTimeout(createToggleButton, 1000);
+      return;
+    }
+
+    // 创建按钮容器
+    toggleButton = document.createElement("button");
+    toggleButton.className = "ytp-button subtwin-toggle";
+    toggleButton.title = "SubTwin 翻译设置";
+    toggleButton.style.cssText = `
+      position: relative;
+      width: 48px;
+      height: 100%;
+      padding: 0;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      opacity: 0.9;
+      transition: opacity 0.1s;
+    `;
+
+    toggleButton.innerHTML = `
+      <svg viewBox="0 0 24 24" width="24" height="24" style="fill: currentColor;">
+        <path d="M12.87 15.07l-2.54-2.51.03-.03A17.52 17.52 0 0014.07 6H17V4h-7V2H8v2H1v2h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z"/>
+      </svg>
+      <div class="subtwin-status" style="
+        position: absolute;
+        bottom: 6px;
+        right: 8px;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: ${settings.enabled ? "#4CAF50" : "#666"};
+        border: 1.5px solid rgba(0,0,0,0.3);
+        transition: background 0.2s;
+      "></div>
+    `;
+
+    toggleButton.addEventListener("mouseenter", () => {
+      toggleButton.style.opacity = "1";
+    });
+
+    toggleButton.addEventListener("mouseleave", () => {
+      toggleButton.style.opacity = "0.9";
+    });
+
+    toggleButton.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleSettingsPanel();
+    });
+
+    rightControls.insertBefore(toggleButton, rightControls.firstChild);
+
+    // 创建设置面板
+    createSettingsPanel();
+
+    // 点击外部关闭面板
+    document.addEventListener("click", (e) => {
+      if (
+        settingsPanel &&
+        !settingsPanel.contains(e.target) &&
+        !toggleButton.contains(e.target)
+      ) {
+        hideSettingsPanel();
+      }
+    });
+
+    console.log("[SubTwin] 播放器设置按钮已创建");
+  }
+
+  /**
+   * 创建设置面板
+   */
+  function createSettingsPanel() {
+    const playerContainer = document.querySelector(".html5-video-player");
+    if (!playerContainer) return;
+
+    settingsPanel = document.createElement("div");
+    settingsPanel.id = "subtwin-settings-panel";
+    settingsPanel.style.cssText = `
+      position: absolute;
+      width: 180px;
+      background: rgba(28, 28, 28, 0.95);
+      border-radius: 8px;
+      padding: 8px 0;
+      z-index: 100;
+      display: none;
+      color: #fff;
+      font-family: "YouTube Sans", Roboto, sans-serif;
+      font-size: 13px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+    `;
+
+    settingsPanel.innerHTML = `
+      <style>
+        #subtwin-settings-panel * {
+          box-sizing: border-box;
+        }
+        #subtwin-settings-panel .menu-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 8px 12px;
+          cursor: pointer;
+          transition: background 0.15s;
+        }
+        #subtwin-settings-panel .menu-item:hover {
+          background: rgba(255,255,255,0.1);
+        }
+        #subtwin-settings-panel .menu-label {
+          font-size: 13px;
+          color: rgba(255,255,255,0.9);
+        }
+        #subtwin-settings-panel .menu-value {
+          font-size: 12px;
+          color: rgba(255,255,255,0.5);
+        }
+        #subtwin-settings-panel .toggle-switch {
+          position: relative;
+          width: 36px;
+          height: 20px;
+        }
+        #subtwin-settings-panel .toggle-switch input {
+          opacity: 0;
+          width: 0;
+          height: 0;
+        }
+        #subtwin-settings-panel .toggle-slider {
+          position: absolute;
+          cursor: pointer;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background-color: #555;
+          transition: 0.2s;
+          border-radius: 20px;
+        }
+        #subtwin-settings-panel .toggle-slider:before {
+          position: absolute;
+          content: "";
+          height: 14px;
+          width: 14px;
+          left: 3px;
+          bottom: 3px;
+          background-color: white;
+          transition: 0.2s;
+          border-radius: 50%;
+        }
+        #subtwin-settings-panel input:checked + .toggle-slider {
+          background-color: #3ea6ff;
+        }
+        #subtwin-settings-panel input:checked + .toggle-slider:before {
+          transform: translateX(16px);
+        }
+        #subtwin-settings-panel .divider {
+          height: 1px;
+          background: rgba(255,255,255,0.1);
+          margin: 4px 0;
+        }
+        #subtwin-settings-panel select {
+          background: transparent;
+          border: none;
+          color: rgba(255,255,255,0.5);
+          font-size: 12px;
+          cursor: pointer;
+          text-align: right;
+          outline: none;
+          -webkit-appearance: none;
+          padding-right: 2px;
+        }
+        #subtwin-settings-panel select option {
+          background: #222;
+          color: #fff;
+        }
+        #subtwin-settings-panel .color-wrapper {
+          position: relative;
+          width: 20px;
+          height: 20px;
+        }
+        #subtwin-settings-panel .color-wrapper input[type="color"] {
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          opacity: 0;
+          cursor: pointer;
+          border: none;
+          padding: 0;
+        }
+        #subtwin-settings-panel .color-dot {
+          width: 20px;
+          height: 20px;
+          border-radius: 50%;
+          border: 2px solid rgba(255,255,255,0.3);
+          pointer-events: none;
+        }
+      </style>
+
+      <div class="menu-item">
+        <span class="menu-label">翻译字幕</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="subtwin-enabled" ${settings.enabled ? "checked" : ""}>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="menu-item">
+        <span class="menu-label">翻译源</span>
+        <select id="subtwin-translator">
+          <option value="google">Google</option>
+          <option value="mymemory">MyMemory</option>
+          <option value="deepl">DeepL</option>
+          <option value="baidu">百度</option>
+          <option value="deepseek">DeepSeek</option>
+          <option value="openai">OpenAI</option>
+          <option value="glm">GLM</option>
+        </select>
+      </div>
+
+      <div class="menu-item">
+        <span class="menu-label">源语言</span>
+        <select id="subtwin-source">
+          <option value="auto">自动</option>
+          <option value="en">英语</option>
+          <option value="ja">日语</option>
+          <option value="ko">韩语</option>
+          <option value="zh-CN">中文</option>
+        </select>
+      </div>
+
+      <div class="menu-item">
+        <span class="menu-label">目标语言</span>
+        <select id="subtwin-target">
+          <option value="zh-CN">简体中文</option>
+          <option value="zh-TW">繁体中文</option>
+          <option value="en">英语</option>
+          <option value="ja">日语</option>
+          <option value="ko">韩语</option>
+        </select>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="menu-item">
+        <span class="menu-label">字体大小</span>
+        <select id="subtwin-fontsize">
+          <option value="1.2">小</option>
+          <option value="1.5">中</option>
+          <option value="1.8">大</option>
+          <option value="2.2">特大</option>
+        </select>
+      </div>
+
+      <div class="menu-item">
+        <span class="menu-label">字体颜色</span>
+        <div class="color-wrapper">
+          <div class="color-dot" id="subtwin-colordot" style="background: ${settings.fontColor};"></div>
+          <input type="color" id="subtwin-colorpicker" value="${settings.fontColor}">
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="menu-item" id="subtwin-reset">
+        <span class="menu-label">重置位置</span>
+        <span class="menu-value">↺</span>
+      </div>
+    `;
+
+    playerContainer.appendChild(settingsPanel);
+    bindPanelEvents();
+  }
+
+  /**
+   * 绑定面板事件
+   */
+  function bindPanelEvents() {
+    // 开关
+    const enabledCheckbox = settingsPanel.querySelector("#subtwin-enabled");
+    enabledCheckbox.addEventListener("change", async () => {
+      settings.enabled = enabledCheckbox.checked;
+      await saveAndApplySettings();
+      updateToggleButton();
+      if (!settings.enabled) hideTranslation();
+    });
+
+    // 翻译源
+    const translatorSelect = settingsPanel.querySelector("#subtwin-translator");
+    translatorSelect.value = settings.translator;
+    translatorSelect.addEventListener("change", async () => {
+      settings.translator = translatorSelect.value;
+      await saveAndApplySettings();
+    });
+
+    // 源语言
+    const sourceSelect = settingsPanel.querySelector("#subtwin-source");
+    sourceSelect.value = settings.sourceLang;
+    sourceSelect.addEventListener("change", async () => {
+      settings.sourceLang = sourceSelect.value;
+      await saveAndApplySettings();
+    });
+
+    // 目标语言
+    const targetSelect = settingsPanel.querySelector("#subtwin-target");
+    targetSelect.value = settings.targetLang;
+    targetSelect.addEventListener("change", async () => {
+      settings.targetLang = targetSelect.value;
+      await saveAndApplySettings();
+    });
+
+    // 字体大小
+    const fontSizeSelect = settingsPanel.querySelector("#subtwin-fontsize");
+    // 匹配最接近的选项
+    const sizes = ["1.2", "1.5", "1.8", "2.2"];
+    const closest = sizes.reduce((a, b) =>
+      Math.abs(parseFloat(b) - parseFloat(settings.fontSize)) <
+      Math.abs(parseFloat(a) - parseFloat(settings.fontSize))
+        ? b
+        : a,
+    );
+    fontSizeSelect.value = closest;
+    fontSizeSelect.addEventListener("change", async () => {
+      settings.fontSize = fontSizeSelect.value;
+      await saveAndApplySettings();
+    });
+
+    // 字体颜色
+    const colorPicker = settingsPanel.querySelector("#subtwin-colorpicker");
+    const colorDot = settingsPanel.querySelector("#subtwin-colordot");
+    colorPicker.addEventListener("input", async () => {
+      colorDot.style.background = colorPicker.value;
+      settings.fontColor = colorPicker.value;
+      await saveAndApplySettings();
+    });
+
+    // 重置位置
+    const resetBtn = settingsPanel.querySelector("#subtwin-reset");
+    resetBtn.addEventListener("click", () => {
+      resetPosition();
+      hideSettingsPanel();
+    });
+  }
+
+  /**
+   * 保存并应用设置
+   */
+  async function saveAndApplySettings() {
+    await chrome.storage.sync.set({
+      enabled: settings.enabled,
+      translator: settings.translator,
+      sourceLang: settings.sourceLang,
+      targetLang: settings.targetLang,
+      fontSize: settings.fontSize,
+      fontColor: settings.fontColor,
+      bgOpacity: settings.bgOpacity,
+    });
+
+    applyStyles();
+    translationCache.clear();
+    pendingTranslations.clear();
+  }
+
+  /**
+   * 切换设置面板显示
+   */
+  function toggleSettingsPanel() {
+    if (!settingsPanel) return;
+
+    if (settingsPanel.style.display === "none") {
+      showSettingsPanel();
+    } else {
+      hideSettingsPanel();
+    }
+  }
+
+  /**
+   * 显示设置面板
+   */
+  function showSettingsPanel() {
+    if (!settingsPanel || !toggleButton) return;
+
+    // 计算按钮位置，将菜单定位到按钮正上方
+    const playerContainer = document.querySelector(".html5-video-player");
+    if (playerContainer) {
+      const playerRect = playerContainer.getBoundingClientRect();
+      const buttonRect = toggleButton.getBoundingClientRect();
+
+      // 菜单右边缘与按钮中心对齐
+      const buttonCenterX =
+        buttonRect.left + buttonRect.width / 2 - playerRect.left;
+      const panelWidth = 180;
+      const rightPos = playerRect.width - buttonCenterX - panelWidth / 2;
+
+      settingsPanel.style.right = `${Math.max(8, rightPos)}px`;
+      settingsPanel.style.bottom = `${playerRect.height - buttonRect.top + playerRect.top + 8}px`;
+    }
+
+    settingsPanel.style.display = "block";
+    syncPanelWithSettings();
+  }
+
+  /**
+   * 隐藏设置面板
+   */
+  function hideSettingsPanel() {
+    if (!settingsPanel) return;
+    settingsPanel.style.display = "none";
+  }
+
+  /**
+   * 同步面板与当前设置
+   */
+  function syncPanelWithSettings() {
+    if (!settingsPanel) return;
+
+    settingsPanel.querySelector("#subtwin-enabled").checked = settings.enabled;
+    settingsPanel.querySelector("#subtwin-translator").value =
+      settings.translator;
+    settingsPanel.querySelector("#subtwin-source").value = settings.sourceLang;
+    settingsPanel.querySelector("#subtwin-target").value = settings.targetLang;
+
+    // 字体大小匹配最接近的选项
+    const sizes = ["1.2", "1.5", "1.8", "2.2"];
+    const closest = sizes.reduce((a, b) =>
+      Math.abs(parseFloat(b) - parseFloat(settings.fontSize)) <
+      Math.abs(parseFloat(a) - parseFloat(settings.fontSize))
+        ? b
+        : a,
+    );
+    settingsPanel.querySelector("#subtwin-fontsize").value = closest;
+
+    settingsPanel.querySelector("#subtwin-colorpicker").value =
+      settings.fontColor;
+    settingsPanel.querySelector("#subtwin-colordot").style.background =
+      settings.fontColor;
+  }
+
+  /**
+   * 更新按钮状态
+   */
+  function updateToggleButton() {
+    if (!toggleButton) return;
+
+    const statusDot = toggleButton.querySelector(".subtwin-status");
+    if (statusDot) {
+      statusDot.style.background = settings.enabled ? "#4CAF50" : "#666";
+    }
+    toggleButton.title = settings.enabled
+      ? "SubTwin 设置 (已开启)"
+      : "SubTwin 设置 (已关闭)";
+  }
 
   function createTranslationOverlay() {
     if (translationOverlay) {
@@ -233,9 +704,13 @@
 
       // 计算相对于容器的百分比位置
       const xPercent =
-        ((e.clientX - dragOffset.x - containerRect.left) / containerRect.width) * 100;
+        ((e.clientX - dragOffset.x - containerRect.left) /
+          containerRect.width) *
+        100;
       const yPercent =
-        ((e.clientY - dragOffset.y - containerRect.top) / containerRect.height) * 100;
+        ((e.clientY - dragOffset.y - containerRect.top) /
+          containerRect.height) *
+        100;
 
       // 限制范围
       const clampedX = Math.max(5, Math.min(95, xPercent));
@@ -377,16 +852,16 @@
 
   // 语言名称映射（用于 AI 翻译提示词）
   const LANG_NAMES = {
-    "auto": "自动检测",
-    "en": "英语",
+    auto: "自动检测",
+    en: "英语",
     "zh-CN": "简体中文",
     "zh-TW": "繁体中文",
-    "ja": "日语",
-    "ko": "韩语",
-    "fr": "法语",
-    "de": "德语",
-    "es": "西班牙语",
-    "ru": "俄语",
+    ja: "日语",
+    ko: "韩语",
+    fr: "法语",
+    de: "德语",
+    es: "西班牙语",
+    ru: "俄语",
   };
 
   async function translateWithMyMemory(text, sourceLang, targetLang) {
@@ -427,16 +902,16 @@
     }
 
     const langMap = {
-      "auto": null, // DeepL 支持自动检测，不传 source_lang
-      "en": "EN",
+      auto: null, // DeepL 支持自动检测，不传 source_lang
+      en: "EN",
       "zh-CN": "ZH",
       "zh-TW": "ZH",
-      "ja": "JA",
-      "ko": "KO",
-      "fr": "FR",
-      "de": "DE",
-      "es": "ES",
-      "ru": "RU",
+      ja: "JA",
+      ko: "KO",
+      fr: "FR",
+      de: "DE",
+      es: "ES",
+      ru: "RU",
     };
 
     const sl = langMap[sourceLang];
@@ -445,7 +920,9 @@
     const isFreeApi = settings.apiKey.endsWith(":fx");
     let baseUrl = settings.apiEndpoint;
     if (!baseUrl) {
-      baseUrl = isFreeApi ? DEFAULT_ENDPOINTS.deepl : DEFAULT_ENDPOINTS.deeplPro;
+      baseUrl = isFreeApi
+        ? DEFAULT_ENDPOINTS.deepl
+        : DEFAULT_ENDPOINTS.deeplPro;
     }
 
     const body = {
@@ -459,7 +936,7 @@
     const response = await fetch(baseUrl, {
       method: "POST",
       headers: {
-        "Authorization": `DeepL-Auth-Key ${settings.apiKey}`,
+        Authorization: `DeepL-Auth-Key ${settings.apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
@@ -482,16 +959,16 @@
     }
 
     const langMap = {
-      "auto": "auto",
-      "en": "en",
+      auto: "auto",
+      en: "en",
       "zh-CN": "zh",
       "zh-TW": "cht",
-      "ja": "jp",
-      "ko": "kor",
-      "fr": "fra",
-      "de": "de",
-      "es": "spa",
-      "ru": "ru",
+      ja: "jp",
+      ko: "kor",
+      fr: "fra",
+      de: "de",
+      es: "spa",
+      ru: "ru",
     };
 
     const from = langMap[sourceLang] || "auto";
@@ -511,7 +988,9 @@
       sign: sign,
     });
 
-    const response = await fetch(`https://fanyi-api.baidu.com/api/trans/vip/translate?${params}`);
+    const response = await fetch(
+      `https://fanyi-api.baidu.com/api/trans/vip/translate?${params}`,
+    );
     const data = await response.json();
 
     if (data.error_code) {
@@ -528,7 +1007,9 @@
   async function md5(string) {
     const encoder = new TextEncoder();
     const data = encoder.encode(string);
-    const hashBuffer = await crypto.subtle.digest("MD5", data).catch(() => null);
+    const hashBuffer = await crypto.subtle
+      .digest("MD5", data)
+      .catch(() => null);
 
     // 如果浏览器不支持 MD5，使用简单实现
     if (!hashBuffer) {
@@ -536,13 +1017,16 @@
     }
 
     const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
   }
 
   // 简单 MD5 实现（备用）
   function simpleMd5(string) {
     function md5cycle(x, k) {
-      var a = x[0], b = x[1], c = x[2], d = x[3];
+      var a = x[0],
+        b = x[1],
+        c = x[2],
+        d = x[3];
       a = ff(a, b, c, d, k[0], 7, -680876936);
       d = ff(d, a, b, c, k[1], 12, -389564586);
       c = ff(c, d, a, b, k[2], 17, 606105819);
@@ -616,26 +1100,48 @@
       a = add32(add32(a, q), add32(x, t));
       return add32((a << s) | (a >>> (32 - s)), b);
     }
-    function ff(a, b, c, d, x, s, t) { return cmn((b & c) | ((~b) & d), a, b, x, s, t); }
-    function gg(a, b, c, d, x, s, t) { return cmn((b & d) | (c & (~d)), a, b, x, s, t); }
-    function hh(a, b, c, d, x, s, t) { return cmn(b ^ c ^ d, a, b, x, s, t); }
-    function ii(a, b, c, d, x, s, t) { return cmn(c ^ (b | (~d)), a, b, x, s, t); }
+    function ff(a, b, c, d, x, s, t) {
+      return cmn((b & c) | (~b & d), a, b, x, s, t);
+    }
+    function gg(a, b, c, d, x, s, t) {
+      return cmn((b & d) | (c & ~d), a, b, x, s, t);
+    }
+    function hh(a, b, c, d, x, s, t) {
+      return cmn(b ^ c ^ d, a, b, x, s, t);
+    }
+    function ii(a, b, c, d, x, s, t) {
+      return cmn(c ^ (b | ~d), a, b, x, s, t);
+    }
     function md5blk(s) {
-      var md5blks = [], i;
+      var md5blks = [],
+        i;
       for (i = 0; i < 64; i += 4) {
-        md5blks[i >> 2] = s.charCodeAt(i) + (s.charCodeAt(i + 1) << 8) + (s.charCodeAt(i + 2) << 16) + (s.charCodeAt(i + 3) << 24);
+        md5blks[i >> 2] =
+          s.charCodeAt(i) +
+          (s.charCodeAt(i + 1) << 8) +
+          (s.charCodeAt(i + 2) << 16) +
+          (s.charCodeAt(i + 3) << 24);
       }
       return md5blks;
     }
     function md5blk_array(a) {
-      var md5blks = [], i;
+      var md5blks = [],
+        i;
       for (i = 0; i < 64; i += 4) {
-        md5blks[i >> 2] = a[i] + (a[i + 1] << 8) + (a[i + 2] << 16) + (a[i + 3] << 24);
+        md5blks[i >> 2] =
+          a[i] + (a[i + 1] << 8) + (a[i + 2] << 16) + (a[i + 3] << 24);
       }
       return md5blks;
     }
     function md51(s) {
-      var n = s.length, state = [1732584193, -271733879, -1732584194, 271733878], i, length, tail, tmp, lo, hi;
+      var n = s.length,
+        state = [1732584193, -271733879, -1732584194, 271733878],
+        i,
+        length,
+        tail,
+        tmp,
+        lo,
+        hi;
       for (i = 64; i <= n; i += 64) {
         md5cycle(state, md5blk(s.substring(i - 64, i)));
       }
@@ -660,9 +1166,12 @@
       return state;
     }
     function rhex(n) {
-      var s = '', j;
+      var s = "",
+        j;
       for (j = 0; j < 4; j++) {
-        s += ((n >> (j * 8 + 4)) & 0x0F).toString(16) + ((n >> (j * 8)) & 0x0F).toString(16);
+        s +=
+          ((n >> (j * 8 + 4)) & 0x0f).toString(16) +
+          ((n >> (j * 8)) & 0x0f).toString(16);
       }
       return s;
     }
@@ -670,10 +1179,10 @@
       for (var i = 0; i < x.length; i++) {
         x[i] = rhex(x[i]);
       }
-      return x.join('');
+      return x.join("");
     }
     function add32(a, b) {
-      return (a + b) & 0xFFFFFFFF;
+      return (a + b) & 0xffffffff;
     }
     return hex(md51(string));
   }
@@ -722,7 +1231,7 @@
       model: model,
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: text }
+        { role: "user", content: text },
       ],
       temperature: 0.3,
       max_tokens: 1000,
@@ -736,7 +1245,9 @@
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`${provider} API 错误: ${response.status} - ${errorText}`);
+      throw new Error(
+        `${provider} API 错误: ${response.status} - ${errorText}`,
+      );
     }
 
     const data = await response.json();
@@ -768,21 +1279,21 @@
             translatedText = await translateWithGoogle(
               text,
               settings.sourceLang,
-              settings.targetLang
+              settings.targetLang,
             );
             break;
           case "deepl":
             translatedText = await translateWithDeepL(
               text,
               settings.sourceLang,
-              settings.targetLang
+              settings.targetLang,
             );
             break;
           case "baidu":
             translatedText = await translateWithBaidu(
               text,
               settings.sourceLang,
-              settings.targetLang
+              settings.targetLang,
             );
             break;
           case "deepseek":
@@ -790,7 +1301,7 @@
               text,
               settings.sourceLang,
               settings.targetLang,
-              "deepseek"
+              "deepseek",
             );
             break;
           case "openai":
@@ -798,7 +1309,7 @@
               text,
               settings.sourceLang,
               settings.targetLang,
-              "openai"
+              "openai",
             );
             break;
           case "glm":
@@ -806,7 +1317,7 @@
               text,
               settings.sourceLang,
               settings.targetLang,
-              "glm"
+              "glm",
             );
             break;
           case "mymemory":
@@ -814,7 +1325,7 @@
             translatedText = await translateWithMyMemory(
               text,
               settings.sourceLang,
-              settings.targetLang
+              settings.targetLang,
             );
             break;
         }
@@ -830,7 +1341,7 @@
       } catch (error) {
         console.error(
           `[SubTwin] 翻译错误 (${settings.translator}):`,
-          error.message
+          error.message,
         );
         return null;
       } finally {
@@ -933,6 +1444,7 @@
       }
 
       applyStyles();
+      updateToggleButton();
 
       if (!settings.enabled) {
         hideTranslation();
@@ -1006,5 +1518,6 @@
   loadSettings().then(() => {
     setupFullscreenListener();
     startObserver();
+    createToggleButton();
   });
 })();
