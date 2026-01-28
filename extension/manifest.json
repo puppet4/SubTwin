@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "SubTwin",
+  "version": "1.0.0",
+  "description": "在 YouTube 视频原字幕下方显示翻译字幕",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "SubTwin 设置",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": [
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://api.mymemory.translated.net/*",
+    "https://translate.googleapis.com/*",
+    "https://api-free.deepl.com/*",
+    "https://api.deepl.com/*"
+  ],
+  "commands": {
+    "toggle-translation": {
+      "suggested_key": {
+        "default": "Alt+T",
+        "mac": "Alt+T"
+      },
+      "description": "开关翻译字幕"
+    }
+  }
+}

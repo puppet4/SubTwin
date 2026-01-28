@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Planning files (optional)
+task_plan.md
+findings.md
+progress.md
+task.md

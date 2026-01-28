@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      width: 280px;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      color: #333;
+      background: #fff;
+    }
+    h1 {
+      font-size: 18px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    h1 span {
+      font-size: 24px;
+    }
+    .section {
+      margin-bottom: 16px;
+    }
+    .section-title {
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: #555;
+    }
+    .toggle-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid #eee;
+    }
+    .toggle-switch {
+      position: relative;
+      width: 44px;
+      height: 24px;
+    }
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #ccc;
+      transition: 0.3s;
+      border-radius: 24px;
+    }
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: 0.3s;
+      border-radius: 50%;
+    }
+    input:checked + .toggle-slider {
+      background-color: #4CAF50;
+    }
+    input:checked + .toggle-slider:before {
+      transform: translateX(20px);
+    }
+    .form-row {
+      margin-bottom: 12px;
+    }
+    label {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 13px;
+      color: #666;
+    }
+    select, input[type="text"], input[type="number"] {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    select:focus, input:focus {
+      outline: none;
+      border-color: #4CAF50;
+    }
+    .color-input {
+      display: flex;
+      gap: 8px;
+    }
+    .color-input input[type="color"] {
+      width: 40px;
+      height: 36px;
+      padding: 2px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .color-input input[type="text"] {
+      flex: 1;
+    }
+    .shortcut-hint {
+      margin-top: 16px;
+      padding: 8px;
+      background: #f5f5f5;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #666;
+      text-align: center;
+    }
+    .shortcut-hint kbd {
+      background: #fff;
+      padding: 2px 6px;
+      border-radius: 3px;
+      border: 1px solid #ccc;
+      font-family: monospace;
+    }
+    .api-key-row {
+      display: none;
+    }
+    .api-key-row.show {
+      display: block;
+    }
+    .hint {
+      font-size: 11px;
+      color: #999;
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1><span>🎬</span> SubTwin</h1>
+
+  <div class="section">
+    <div class="toggle-row">
+      <span>启用翻译字幕</span>
+      <label class="toggle-switch">
+        <input type="checkbox" id="enabled" checked>
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">翻译服务</div>
+    <div class="form-row">
+      <label for="translator">翻译源</label>
+      <select id="translator">
+        <option value="mymemory">MyMemory (免费)</option>
+        <option value="google">Google 翻译 (免费)</option>
+        <option value="deepl">DeepL (需要API Key)</option>
+      </select>
+    </div>
+    <div class="form-row api-key-row" id="apiKeyRow">
+      <label for="apiKey">API Key</label>
+      <input type="text" id="apiKey" placeholder="输入你的 API Key">
+      <div class="hint" id="apiKeyHint">从 DeepL 获取免费 API Key</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">语言设置</div>
+    <div class="form-row">
+      <label for="sourceLang">原字幕语言</label>
+      <select id="sourceLang">
+        <option value="en">英语</option>
+        <option value="ja">日语</option>
+        <option value="ko">韩语</option>
+        <option value="fr">法语</option>
+        <option value="de">德语</option>
+        <option value="es">西班牙语</option>
+        <option value="ru">俄语</option>
+        <option value="zh-CN">中文</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <label for="targetLang">翻译目标语言</label>
+      <select id="targetLang">
+        <option value="zh-CN">简体中文</option>
+        <option value="zh-TW">繁体中文</option>
+        <option value="en">英语</option>
+        <option value="ja">日语</option>
+        <option value="ko">韩语</option>
+        <option value="fr">法语</option>
+        <option value="de">德语</option>
+        <option value="es">西班牙语</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">字幕样式</div>
+    <div class="form-row">
+      <label for="fontSize">字体大小 (em)</label>
+      <input type="number" id="fontSize" min="1" max="3" step="0.1" value="1.8">
+    </div>
+    <div class="form-row">
+      <label for="fontColor">字体颜色</label>
+      <div class="color-input">
+        <input type="color" id="fontColorPicker" value="#ffd700">
+        <input type="text" id="fontColor" value="#ffd700" maxlength="7">
+      </div>
+    </div>
+    <div class="form-row">
+      <label for="bgOpacity">背景透明度</label>
+      <input type="number" id="bgOpacity" min="0" max="1" step="0.05" value="0.75">
+    </div>
+  </div>
+
+  <div class="shortcut-hint">
+    快捷键: <kbd>Alt</kbd> + <kbd>T</kbd> 开关翻译
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
