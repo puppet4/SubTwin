@@ -9,42 +9,57 @@
       padding: 0;
     }
     body {
-      width: 280px;
-      padding: 16px;
+      width: 360px;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      font-size: 14px;
-      color: #333;
-      background: #fff;
+      font-size: 13px;
+      color: #1a1a1a;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100px;
     }
-    h1 {
-      font-size: 18px;
-      margin-bottom: 16px;
+    .container {
+      background: #fff;
+      margin: 12px;
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+      overflow: hidden;
+    }
+    .header {
+      padding: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .logo {
+      font-size: 28px;
+    }
+    .header h1 {
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: -0.5px;
+    }
+    .header .subtitle {
+      font-size: 11px;
+      opacity: 0.85;
+      margin-top: 2px;
+    }
+
+    /* 主开关 */
+    .main-toggle {
       display: flex;
       align-items: center;
       gap: 8px;
     }
-    h1 span {
-      font-size: 24px;
-    }
-    .section {
-      margin-bottom: 16px;
-    }
-    .section-title {
-      font-weight: 600;
-      margin-bottom: 8px;
-      color: #555;
-    }
-    .toggle-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 8px 0;
-      border-bottom: 1px solid #eee;
-    }
     .toggle-switch {
       position: relative;
-      width: 44px;
-      height: 24px;
+      width: 48px;
+      height: 26px;
     }
     .toggle-switch input {
       opacity: 0;
@@ -58,170 +73,292 @@
       left: 0;
       right: 0;
       bottom: 0;
-      background-color: #ccc;
+      background-color: rgba(255,255,255,0.3);
       transition: 0.3s;
-      border-radius: 24px;
+      border-radius: 26px;
     }
     .toggle-slider:before {
       position: absolute;
       content: "";
-      height: 18px;
-      width: 18px;
+      height: 20px;
+      width: 20px;
       left: 3px;
       bottom: 3px;
       background-color: white;
       transition: 0.3s;
       border-radius: 50%;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
     }
     input:checked + .toggle-slider {
-      background-color: #4CAF50;
+      background-color: rgba(255,255,255,0.5);
     }
     input:checked + .toggle-slider:before {
-      transform: translateX(20px);
+      transform: translateX(22px);
     }
+
+    /* 内容区域 */
+    .content {
+      padding: 16px;
+    }
+
+    /* 分组卡片 */
+    .card {
+      background: #f8f9fa;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+    .card:last-child {
+      margin-bottom: 0;
+    }
+    .card-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: #667eea;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 12px;
+    }
+
+    /* 表单行 */
     .form-row {
       margin-bottom: 12px;
     }
+    .form-row:last-child {
+      margin-bottom: 0;
+    }
     label {
       display: block;
-      margin-bottom: 4px;
-      font-size: 13px;
-      color: #666;
+      margin-bottom: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      color: #555;
     }
-    select, input[type="text"], input[type="number"] {
+    select, input[type="text"], input[type="password"], input[type="number"] {
       width: 100%;
-      padding: 8px;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      font-size: 14px;
+      padding: 10px 12px;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 13px;
+      background: white;
+      transition: border-color 0.2s, box-shadow 0.2s;
     }
     select:focus, input:focus {
       outline: none;
-      border-color: #4CAF50;
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
     }
+    select {
+      cursor: pointer;
+    }
+
+    /* 两列布局 */
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    /* 颜色选择器 */
     .color-input {
       display: flex;
       gap: 8px;
     }
     .color-input input[type="color"] {
-      width: 40px;
-      height: 36px;
+      width: 42px;
+      height: 38px;
       padding: 2px;
-      border: 1px solid #ddd;
-      border-radius: 4px;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
       cursor: pointer;
+      background: white;
     }
     .color-input input[type="text"] {
       flex: 1;
     }
-    .api-key-row {
+
+    /* 隐藏字段 */
+    .api-key-row, .api-endpoint-row, .baidu-appid-row, .ai-model-row {
       display: none;
+      margin-top: 12px;
     }
-    .api-key-row.show {
+    .api-key-row.show, .api-endpoint-row.show, .baidu-appid-row.show, .ai-model-row.show {
       display: block;
     }
+
+    /* 提示文字 */
     .hint {
       font-size: 11px;
-      color: #999;
+      color: #888;
       margin-top: 4px;
+      line-height: 1.4;
     }
+    .hint a {
+      color: #667eea;
+      text-decoration: none;
+    }
+    .hint a:hover {
+      text-decoration: underline;
+    }
+
+    /* 重置按钮 */
     .reset-btn {
       width: 100%;
-      padding: 8px;
-      background: #f5f5f5;
-      border: 1px solid #ddd;
-      border-radius: 4px;
+      padding: 10px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border: none;
+      border-radius: 8px;
       font-size: 13px;
-      color: #666;
+      font-weight: 500;
+      color: white;
       cursor: pointer;
-      transition: background 0.2s;
+      transition: opacity 0.2s, transform 0.2s;
     }
     .reset-btn:hover {
-      background: #eee;
+      opacity: 0.9;
+    }
+    .reset-btn:active {
+      transform: scale(0.98);
+    }
+
+    /* 滚动条 */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #ccc;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #aaa;
     }
   </style>
 </head>
 <body>
-  <h1><span>🎬</span> SubTwin</h1>
-
-  <div class="section">
-    <div class="toggle-row">
-      <span>启用翻译字幕</span>
-      <label class="toggle-switch">
-        <input type="checkbox" id="enabled" checked>
-        <span class="toggle-slider"></span>
-      </label>
-    </div>
-  </div>
-
-  <div class="section">
-    <div class="section-title">翻译服务</div>
-    <div class="form-row">
-      <label for="translator">翻译源</label>
-      <select id="translator">
-        <option value="google">Google 翻译 (免费，推荐)</option>
-        <option value="mymemory">MyMemory (免费)</option>
-        <option value="deepl">DeepL (需要API Key)</option>
-      </select>
-    </div>
-    <div class="form-row api-key-row" id="apiKeyRow">
-      <label for="apiKey">API Key</label>
-      <input type="text" id="apiKey" placeholder="输入你的 API Key">
-      <div class="hint" id="apiKeyHint">从 DeepL 获取免费 API Key</div>
-    </div>
-  </div>
-
-  <div class="section">
-    <div class="section-title">语言设置</div>
-    <div class="form-row">
-      <label for="sourceLang">原字幕语言</label>
-      <select id="sourceLang">
-        <option value="en">英语</option>
-        <option value="ja">日语</option>
-        <option value="ko">韩语</option>
-        <option value="fr">法语</option>
-        <option value="de">德语</option>
-        <option value="es">西班牙语</option>
-        <option value="ru">俄语</option>
-        <option value="zh-CN">中文</option>
-      </select>
-    </div>
-    <div class="form-row">
-      <label for="targetLang">翻译目标语言</label>
-      <select id="targetLang">
-        <option value="zh-CN">简体中文</option>
-        <option value="zh-TW">繁体中文</option>
-        <option value="en">英语</option>
-        <option value="ja">日语</option>
-        <option value="ko">韩语</option>
-        <option value="fr">法语</option>
-        <option value="de">德语</option>
-        <option value="es">西班牙语</option>
-      </select>
-    </div>
-  </div>
-
-  <div class="section">
-    <div class="section-title">字幕样式</div>
-    <div class="form-row">
-      <label for="fontSize">字体大小 (em)</label>
-      <input type="number" id="fontSize" min="1" max="3" step="0.1" value="1.8">
-    </div>
-    <div class="form-row">
-      <label for="fontColor">字体颜色</label>
-      <div class="color-input">
-        <input type="color" id="fontColorPicker" value="#ffd700">
-        <input type="text" id="fontColor" value="#ffd700" maxlength="7">
+  <div class="container">
+    <div class="header">
+      <div class="header-left">
+        <span class="logo">🎬</span>
+        <div>
+          <h1>SubTwin</h1>
+          <div class="subtitle">YouTube 字幕翻译</div>
+        </div>
+      </div>
+      <div class="main-toggle">
+        <label class="toggle-switch">
+          <input type="checkbox" id="enabled" checked>
+          <span class="toggle-slider"></span>
+        </label>
       </div>
     </div>
-    <div class="form-row">
-      <label for="bgOpacity">背景透明度</label>
-      <input type="number" id="bgOpacity" min="0" max="1" step="0.05" value="0.75">
-    </div>
-  </div>
 
-  <div class="section">
-    <button class="reset-btn" id="resetPosition">重置字幕位置</button>
+    <div class="content">
+      <!-- 翻译服务 -->
+      <div class="card">
+        <div class="card-title">翻译服务</div>
+        <div class="form-row">
+          <label for="translator">翻译源</label>
+          <select id="translator">
+            <optgroup label="免费翻译">
+              <option value="google">Google 翻译 (推荐)</option>
+              <option value="mymemory">MyMemory</option>
+            </optgroup>
+            <optgroup label="传统翻译 API">
+              <option value="deepl">DeepL</option>
+              <option value="baidu">百度翻译</option>
+            </optgroup>
+            <optgroup label="AI 大模型">
+              <option value="deepseek">DeepSeek</option>
+              <option value="openai">OpenAI (GPT)</option>
+              <option value="glm">智谱 GLM</option>
+            </optgroup>
+          </select>
+        </div>
+        <div class="form-row api-key-row" id="apiKeyRow">
+          <label for="apiKey">API Key</label>
+          <input type="password" id="apiKey" placeholder="输入你的 API Key">
+          <div class="hint" id="apiKeyHint"></div>
+        </div>
+        <div class="form-row baidu-appid-row" id="baiduAppIdRow">
+          <label for="baiduAppId">百度 AppID</label>
+          <input type="text" id="baiduAppId" placeholder="输入百度翻译 AppID">
+        </div>
+        <div class="form-row api-endpoint-row" id="apiEndpointRow">
+          <label for="apiEndpoint">自定义端点 (可选)</label>
+          <input type="text" id="apiEndpoint" placeholder="留空使用默认端点">
+          <div class="hint">用于代理或私有部署</div>
+        </div>
+        <div class="form-row ai-model-row" id="aiModelRow">
+          <label for="aiModel">模型</label>
+          <input type="text" id="aiModel" placeholder="如: gpt-4o-mini">
+          <div class="hint" id="aiModelHint"></div>
+        </div>
+      </div>
+
+      <!-- 语言设置 -->
+      <div class="card">
+        <div class="card-title">语言设置</div>
+        <div class="form-grid">
+          <div class="form-row">
+            <label for="sourceLang">源语言</label>
+            <select id="sourceLang">
+              <option value="auto">自动检测</option>
+              <option value="en">英语</option>
+              <option value="ja">日语</option>
+              <option value="ko">韩语</option>
+              <option value="fr">法语</option>
+              <option value="de">德语</option>
+              <option value="es">西班牙语</option>
+              <option value="ru">俄语</option>
+              <option value="zh-CN">中文</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label for="targetLang">目标语言</label>
+            <select id="targetLang">
+              <option value="zh-CN">简体中文</option>
+              <option value="zh-TW">繁体中文</option>
+              <option value="en">英语</option>
+              <option value="ja">日语</option>
+              <option value="ko">韩语</option>
+              <option value="fr">法语</option>
+              <option value="de">德语</option>
+              <option value="es">西班牙语</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- 字幕样式 -->
+      <div class="card">
+        <div class="card-title">字幕样式</div>
+        <div class="form-grid">
+          <div class="form-row">
+            <label for="fontSize">字体大小</label>
+            <input type="number" id="fontSize" min="1" max="3" step="0.1" value="1.8">
+          </div>
+          <div class="form-row">
+            <label for="bgOpacity">背景透明度</label>
+            <input type="number" id="bgOpacity" min="0" max="1" step="0.05" value="0.75">
+          </div>
+        </div>
+        <div class="form-row" style="margin-top: 12px;">
+          <label for="fontColor">字体颜色</label>
+          <div class="color-input">
+            <input type="color" id="fontColorPicker" value="#ffd700">
+            <input type="text" id="fontColor" value="#ffd700" maxlength="7">
+          </div>
+        </div>
+      </div>
+
+      <!-- 操作 -->
+      <div class="card">
+        <button class="reset-btn" id="resetPosition">重置字幕位置</button>
+      </div>
+    </div>
   </div>
 
   <script src="popup.js"></script>

@@ -1,9 +1,9 @@
 /**
  * SubTwin - YouTube 字幕翻译插件
- * Phase 9: UX 优化
- * - 拖拽字幕位置
- * - 全屏适配
- * - 翻译状态提示
+ * Phase 10: 翻译服务扩展
+ * - 多翻译源：Google、MyMemory、DeepL、百度、DeepSeek、OpenAI、GLM
+ * - 源语言自动检测
+ * - 自定义 API 端点
  */
 
 (function () {
@@ -24,7 +24,10 @@
     enabled: true,
     translator: "google",
     apiKey: "",
-    sourceLang: "en",
+    baiduAppId: "",
+    apiEndpoint: "",
+    aiModel: "",
+    sourceLang: "auto",
     targetLang: "zh-CN",
     fontSize: "1.8",
     fontColor: "#ffd700",
@@ -295,25 +298,6 @@
   }
 
   /**
-   * 显示翻译中状态
-   */
-  function showLoading() {
-    if (!settings.enabled) return;
-
-    const overlay = createTranslationOverlay();
-    if (!overlay) return;
-
-    const textElement = overlay.querySelector("#subtwin-text");
-    if (textElement) {
-      textElement.textContent = "翻译中...";
-      textElement.style.fontStyle = "italic";
-      textElement.style.opacity = "0.6";
-      overlay.style.opacity = "1";
-      overlay.style.display = "block";
-    }
-  }
-
-  /**
    * 显示错误状态
    */
   function showError() {
@@ -375,8 +359,39 @@
 
   // ========== 翻译 API ==========
 
+  // 默认 API 端点
+  const DEFAULT_ENDPOINTS = {
+    deepl: "https://api-free.deepl.com/v2/translate",
+    deeplPro: "https://api.deepl.com/v2/translate",
+    deepseek: "https://api.deepseek.com/v1/chat/completions",
+    openai: "https://api.openai.com/v1/chat/completions",
+    glm: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+  };
+
+  // 默认模型
+  const DEFAULT_MODELS = {
+    deepseek: "deepseek-chat",
+    openai: "gpt-4o-mini",
+    glm: "glm-4-flash",
+  };
+
+  // 语言名称映射（用于 AI 翻译提示词）
+  const LANG_NAMES = {
+    "auto": "自动检测",
+    "en": "英语",
+    "zh-CN": "简体中文",
+    "zh-TW": "繁体中文",
+    "ja": "日语",
+    "ko": "韩语",
+    "fr": "法语",
+    "de": "德语",
+    "es": "西班牙语",
+    "ru": "俄语",
+  };
+
   async function translateWithMyMemory(text, sourceLang, targetLang) {
-    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${sourceLang}|${targetLang}`;
+    const sl = sourceLang === "auto" ? "autodetect" : sourceLang;
+    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${sl}|${targetLang}`;
     const response = await fetch(url);
     const data = await response.json();
 
@@ -387,8 +402,8 @@
   }
 
   async function translateWithGoogle(text, sourceLang, targetLang) {
-    const sl = sourceLang === "zh-CN" ? "zh-CN" : sourceLang;
-    const tl = targetLang === "zh-CN" ? "zh-CN" : targetLang;
+    const sl = sourceLang === "auto" ? "auto" : sourceLang;
+    const tl = targetLang;
 
     const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sl}&tl=${tl}&dt=t&q=${encodeURIComponent(text)}`;
     const response = await fetch(url);
@@ -406,42 +421,48 @@
     throw new Error("Google 翻译失败");
   }
 
-  async function translateWithDeepL(text, sourceLang, targetLang, apiKey) {
-    if (!apiKey) {
+  async function translateWithDeepL(text, sourceLang, targetLang) {
+    if (!settings.apiKey) {
       throw new Error("DeepL 需要 API Key");
     }
 
     const langMap = {
-      en: "EN",
+      "auto": null, // DeepL 支持自动检测，不传 source_lang
+      "en": "EN",
       "zh-CN": "ZH",
       "zh-TW": "ZH",
-      ja: "JA",
-      ko: "KO",
-      fr: "FR",
-      de: "DE",
-      es: "ES",
-      ru: "RU",
+      "ja": "JA",
+      "ko": "KO",
+      "fr": "FR",
+      "de": "DE",
+      "es": "ES",
+      "ru": "RU",
     };
 
-    const sl = langMap[sourceLang] || sourceLang.toUpperCase();
+    const sl = langMap[sourceLang];
     const tl = langMap[targetLang] || targetLang.toUpperCase();
 
-    const isFreeApi = apiKey.endsWith(":fx");
-    const baseUrl = isFreeApi
-      ? "https://api-free.deepl.com/v2/translate"
-      : "https://api.deepl.com/v2/translate";
+    const isFreeApi = settings.apiKey.endsWith(":fx");
+    let baseUrl = settings.apiEndpoint;
+    if (!baseUrl) {
+      baseUrl = isFreeApi ? DEFAULT_ENDPOINTS.deepl : DEFAULT_ENDPOINTS.deeplPro;
+    }
+
+    const body = {
+      text: [text],
+      target_lang: tl,
+    };
+    if (sl) {
+      body.source_lang = sl;
+    }
 
     const response = await fetch(baseUrl, {
       method: "POST",
       headers: {
-        Authorization: `DeepL-Auth-Key ${apiKey}`,
+        "Authorization": `DeepL-Auth-Key ${settings.apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        text: [text],
-        source_lang: sl,
-        target_lang: tl,
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
@@ -453,6 +474,278 @@
       return data.translations[0].text;
     }
     throw new Error("DeepL 翻译失败");
+  }
+
+  async function translateWithBaidu(text, sourceLang, targetLang) {
+    if (!settings.baiduAppId || !settings.apiKey) {
+      throw new Error("百度翻译需要 AppID 和密钥");
+    }
+
+    const langMap = {
+      "auto": "auto",
+      "en": "en",
+      "zh-CN": "zh",
+      "zh-TW": "cht",
+      "ja": "jp",
+      "ko": "kor",
+      "fr": "fra",
+      "de": "de",
+      "es": "spa",
+      "ru": "ru",
+    };
+
+    const from = langMap[sourceLang] || "auto";
+    const to = langMap[targetLang] || "zh";
+
+    // 生成签名
+    const salt = Date.now().toString();
+    const signStr = settings.baiduAppId + text + salt + settings.apiKey;
+    const sign = await md5(signStr);
+
+    const params = new URLSearchParams({
+      q: text,
+      from: from,
+      to: to,
+      appid: settings.baiduAppId,
+      salt: salt,
+      sign: sign,
+    });
+
+    const response = await fetch(`https://fanyi-api.baidu.com/api/trans/vip/translate?${params}`);
+    const data = await response.json();
+
+    if (data.error_code) {
+      throw new Error(`百度翻译错误: ${data.error_code} - ${data.error_msg}`);
+    }
+
+    if (data.trans_result && data.trans_result[0]) {
+      return data.trans_result[0].dst;
+    }
+    throw new Error("百度翻译失败");
+  }
+
+  // MD5 哈希函数（百度翻译签名需要）
+  async function md5(string) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(string);
+    const hashBuffer = await crypto.subtle.digest("MD5", data).catch(() => null);
+
+    // 如果浏览器不支持 MD5，使用简单实现
+    if (!hashBuffer) {
+      return simpleMd5(string);
+    }
+
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  // 简单 MD5 实现（备用）
+  function simpleMd5(string) {
+    function md5cycle(x, k) {
+      var a = x[0], b = x[1], c = x[2], d = x[3];
+      a = ff(a, b, c, d, k[0], 7, -680876936);
+      d = ff(d, a, b, c, k[1], 12, -389564586);
+      c = ff(c, d, a, b, k[2], 17, 606105819);
+      b = ff(b, c, d, a, k[3], 22, -1044525330);
+      a = ff(a, b, c, d, k[4], 7, -176418897);
+      d = ff(d, a, b, c, k[5], 12, 1200080426);
+      c = ff(c, d, a, b, k[6], 17, -1473231341);
+      b = ff(b, c, d, a, k[7], 22, -45705983);
+      a = ff(a, b, c, d, k[8], 7, 1770035416);
+      d = ff(d, a, b, c, k[9], 12, -1958414417);
+      c = ff(c, d, a, b, k[10], 17, -42063);
+      b = ff(b, c, d, a, k[11], 22, -1990404162);
+      a = ff(a, b, c, d, k[12], 7, 1804603682);
+      d = ff(d, a, b, c, k[13], 12, -40341101);
+      c = ff(c, d, a, b, k[14], 17, -1502002290);
+      b = ff(b, c, d, a, k[15], 22, 1236535329);
+      a = gg(a, b, c, d, k[1], 5, -165796510);
+      d = gg(d, a, b, c, k[6], 9, -1069501632);
+      c = gg(c, d, a, b, k[11], 14, 643717713);
+      b = gg(b, c, d, a, k[0], 20, -373897302);
+      a = gg(a, b, c, d, k[5], 5, -701558691);
+      d = gg(d, a, b, c, k[10], 9, 38016083);
+      c = gg(c, d, a, b, k[15], 14, -660478335);
+      b = gg(b, c, d, a, k[4], 20, -405537848);
+      a = gg(a, b, c, d, k[9], 5, 568446438);
+      d = gg(d, a, b, c, k[14], 9, -1019803690);
+      c = gg(c, d, a, b, k[3], 14, -187363961);
+      b = gg(b, c, d, a, k[8], 20, 1163531501);
+      a = gg(a, b, c, d, k[13], 5, -1444681467);
+      d = gg(d, a, b, c, k[2], 9, -51403784);
+      c = gg(c, d, a, b, k[7], 14, 1735328473);
+      b = gg(b, c, d, a, k[12], 20, -1926607734);
+      a = hh(a, b, c, d, k[5], 4, -378558);
+      d = hh(d, a, b, c, k[8], 11, -2022574463);
+      c = hh(c, d, a, b, k[11], 16, 1839030562);
+      b = hh(b, c, d, a, k[14], 23, -35309556);
+      a = hh(a, b, c, d, k[1], 4, -1530992060);
+      d = hh(d, a, b, c, k[4], 11, 1272893353);
+      c = hh(c, d, a, b, k[7], 16, -155497632);
+      b = hh(b, c, d, a, k[10], 23, -1094730640);
+      a = hh(a, b, c, d, k[13], 4, 681279174);
+      d = hh(d, a, b, c, k[0], 11, -358537222);
+      c = hh(c, d, a, b, k[3], 16, -722521979);
+      b = hh(b, c, d, a, k[6], 23, 76029189);
+      a = hh(a, b, c, d, k[9], 4, -640364487);
+      d = hh(d, a, b, c, k[12], 11, -421815835);
+      c = hh(c, d, a, b, k[15], 16, 530742520);
+      b = hh(b, c, d, a, k[2], 23, -995338651);
+      a = ii(a, b, c, d, k[0], 6, -198630844);
+      d = ii(d, a, b, c, k[7], 10, 1126891415);
+      c = ii(c, d, a, b, k[14], 15, -1416354905);
+      b = ii(b, c, d, a, k[5], 21, -57434055);
+      a = ii(a, b, c, d, k[12], 6, 1700485571);
+      d = ii(d, a, b, c, k[3], 10, -1894986606);
+      c = ii(c, d, a, b, k[10], 15, -1051523);
+      b = ii(b, c, d, a, k[1], 21, -2054922799);
+      a = ii(a, b, c, d, k[8], 6, 1873313359);
+      d = ii(d, a, b, c, k[15], 10, -30611744);
+      c = ii(c, d, a, b, k[6], 15, -1560198380);
+      b = ii(b, c, d, a, k[13], 21, 1309151649);
+      a = ii(a, b, c, d, k[4], 6, -145523070);
+      d = ii(d, a, b, c, k[11], 10, -1120210379);
+      c = ii(c, d, a, b, k[2], 15, 718787259);
+      b = ii(b, c, d, a, k[9], 21, -343485551);
+      x[0] = add32(a, x[0]);
+      x[1] = add32(b, x[1]);
+      x[2] = add32(c, x[2]);
+      x[3] = add32(d, x[3]);
+    }
+    function cmn(q, a, b, x, s, t) {
+      a = add32(add32(a, q), add32(x, t));
+      return add32((a << s) | (a >>> (32 - s)), b);
+    }
+    function ff(a, b, c, d, x, s, t) { return cmn((b & c) | ((~b) & d), a, b, x, s, t); }
+    function gg(a, b, c, d, x, s, t) { return cmn((b & d) | (c & (~d)), a, b, x, s, t); }
+    function hh(a, b, c, d, x, s, t) { return cmn(b ^ c ^ d, a, b, x, s, t); }
+    function ii(a, b, c, d, x, s, t) { return cmn(c ^ (b | (~d)), a, b, x, s, t); }
+    function md5blk(s) {
+      var md5blks = [], i;
+      for (i = 0; i < 64; i += 4) {
+        md5blks[i >> 2] = s.charCodeAt(i) + (s.charCodeAt(i + 1) << 8) + (s.charCodeAt(i + 2) << 16) + (s.charCodeAt(i + 3) << 24);
+      }
+      return md5blks;
+    }
+    function md5blk_array(a) {
+      var md5blks = [], i;
+      for (i = 0; i < 64; i += 4) {
+        md5blks[i >> 2] = a[i] + (a[i + 1] << 8) + (a[i + 2] << 16) + (a[i + 3] << 24);
+      }
+      return md5blks;
+    }
+    function md51(s) {
+      var n = s.length, state = [1732584193, -271733879, -1732584194, 271733878], i, length, tail, tmp, lo, hi;
+      for (i = 64; i <= n; i += 64) {
+        md5cycle(state, md5blk(s.substring(i - 64, i)));
+      }
+      s = s.substring(i - 64);
+      length = s.length;
+      tail = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+      for (i = 0; i < length; i++) {
+        tail[i >> 2] |= s.charCodeAt(i) << ((i % 4) << 3);
+      }
+      tail[i >> 2] |= 0x80 << ((i % 4) << 3);
+      if (i > 55) {
+        md5cycle(state, tail);
+        for (i = 0; i < 16; i++) tail[i] = 0;
+      }
+      tmp = n * 8;
+      tmp = tmp.toString(16).match(/(.*?)(.{0,8})$/);
+      lo = parseInt(tmp[2], 16);
+      hi = parseInt(tmp[1], 16) || 0;
+      tail[14] = lo;
+      tail[15] = hi;
+      md5cycle(state, tail);
+      return state;
+    }
+    function rhex(n) {
+      var s = '', j;
+      for (j = 0; j < 4; j++) {
+        s += ((n >> (j * 8 + 4)) & 0x0F).toString(16) + ((n >> (j * 8)) & 0x0F).toString(16);
+      }
+      return s;
+    }
+    function hex(x) {
+      for (var i = 0; i < x.length; i++) {
+        x[i] = rhex(x[i]);
+      }
+      return x.join('');
+    }
+    function add32(a, b) {
+      return (a + b) & 0xFFFFFFFF;
+    }
+    return hex(md51(string));
+  }
+
+  /**
+   * AI 翻译通用函数（支持 DeepSeek、OpenAI、GLM）
+   */
+  async function translateWithAI(text, sourceLang, targetLang, provider) {
+    if (!settings.apiKey) {
+      throw new Error(`${provider} 需要 API Key`);
+    }
+
+    const model = settings.aiModel || DEFAULT_MODELS[provider];
+    const endpoint = settings.apiEndpoint || DEFAULT_ENDPOINTS[provider];
+
+    const sourceLangName = LANG_NAMES[sourceLang] || sourceLang;
+    const targetLangName = LANG_NAMES[targetLang] || targetLang;
+
+    let systemPrompt;
+    if (sourceLang === "auto") {
+      systemPrompt = `你是一个专业的字幕翻译器。请将用户提供的文本翻译成${targetLangName}。
+要求：
+1. 只输出翻译结果，不要有任何解释或额外文字
+2. 保持原文的语气和风格
+3. 翻译要自然流畅，符合目标语言习惯`;
+    } else {
+      systemPrompt = `你是一个专业的字幕翻译器。请将用户提供的${sourceLangName}文本翻译成${targetLangName}。
+要求：
+1. 只输出翻译结果，不要有任何解释或额外文字
+2. 保持原文的语气和风格
+3. 翻译要自然流畅，符合目标语言习惯`;
+    }
+
+    const headers = {
+      "Content-Type": "application/json",
+    };
+
+    // 不同服务的认证方式
+    if (provider === "glm") {
+      headers["Authorization"] = `Bearer ${settings.apiKey}`;
+    } else {
+      headers["Authorization"] = `Bearer ${settings.apiKey}`;
+    }
+
+    const body = {
+      model: model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: text }
+      ],
+      temperature: 0.3,
+      max_tokens: 1000,
+    };
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: headers,
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`${provider} API 错误: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json();
+
+    if (data.choices && data.choices[0] && data.choices[0].message) {
+      return data.choices[0].message.content.trim();
+    }
+
+    throw new Error(`${provider} 翻译失败`);
   }
 
   async function translateText(text, isPrefetch = false) {
@@ -482,8 +775,38 @@
             translatedText = await translateWithDeepL(
               text,
               settings.sourceLang,
+              settings.targetLang
+            );
+            break;
+          case "baidu":
+            translatedText = await translateWithBaidu(
+              text,
+              settings.sourceLang,
+              settings.targetLang
+            );
+            break;
+          case "deepseek":
+            translatedText = await translateWithAI(
+              text,
+              settings.sourceLang,
               settings.targetLang,
-              settings.apiKey
+              "deepseek"
+            );
+            break;
+          case "openai":
+            translatedText = await translateWithAI(
+              text,
+              settings.sourceLang,
+              settings.targetLang,
+              "openai"
+            );
+            break;
+          case "glm":
+            translatedText = await translateWithAI(
+              text,
+              settings.sourceLang,
+              settings.targetLang,
+              "glm"
             );
             break;
           case "mymemory":
@@ -533,7 +856,7 @@
   }
 
   /**
-   * 输出字幕并显示翻译（带状态提示）
+   * 输出字幕并显示翻译
    */
   async function outputCaption(text) {
     if (!text || text === lastOutputText || !settings.enabled) {
@@ -542,12 +865,6 @@
     lastOutputText = text;
 
     console.log("[SubTwin] 原文:", text);
-
-    // 检查缓存：有缓存直接显示，无缓存显示 loading
-    const cacheKey = getCacheKey(text);
-    if (!translationCache.has(cacheKey)) {
-      showLoading();
-    }
 
     const translated = await translateText(text);
     if (translated) {
@@ -682,7 +999,7 @@
       characterData: true,
     });
 
-    console.log("[SubTwin] 字幕监听已启动（UX 优化版）");
+    console.log("[SubTwin] 字幕监听已启动（翻译服务扩展版）");
   }
 
   // 初始化

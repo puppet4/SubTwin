@@ -8,6 +8,14 @@ const elements = {
   translator: document.getElementById("translator"),
   apiKey: document.getElementById("apiKey"),
   apiKeyRow: document.getElementById("apiKeyRow"),
+  apiKeyHint: document.getElementById("apiKeyHint"),
+  baiduAppId: document.getElementById("baiduAppId"),
+  baiduAppIdRow: document.getElementById("baiduAppIdRow"),
+  apiEndpoint: document.getElementById("apiEndpoint"),
+  apiEndpointRow: document.getElementById("apiEndpointRow"),
+  aiModel: document.getElementById("aiModel"),
+  aiModelRow: document.getElementById("aiModelRow"),
+  aiModelHint: document.getElementById("aiModelHint"),
   sourceLang: document.getElementById("sourceLang"),
   targetLang: document.getElementById("targetLang"),
   fontSize: document.getElementById("fontSize"),
@@ -17,13 +25,111 @@ const elements = {
   resetPosition: document.getElementById("resetPosition"),
 };
 
-// 根据翻译源显示/隐藏 API Key 输入框
-function updateApiKeyVisibility() {
+// 翻译源配置
+const translatorConfig = {
+  google: {
+    needsApiKey: false,
+    needsEndpoint: false,
+    needsModel: false,
+    needsBaiduAppId: false,
+  },
+  mymemory: {
+    needsApiKey: false,
+    needsEndpoint: false,
+    needsModel: false,
+    needsBaiduAppId: false,
+  },
+  deepl: {
+    needsApiKey: true,
+    needsEndpoint: true,
+    needsModel: false,
+    needsBaiduAppId: false,
+    apiKeyHint: "从 DeepL 获取 API Key (免费版以 :fx 结尾)",
+    defaultEndpoint: "https://api-free.deepl.com/v2/translate",
+    endpointHint: "免费版使用 api-free.deepl.com，Pro 版使用 api.deepl.com",
+  },
+  baidu: {
+    needsApiKey: true,
+    needsEndpoint: false,
+    needsModel: false,
+    needsBaiduAppId: true,
+    apiKeyHint: "百度翻译密钥 (Secret Key)",
+  },
+  deepseek: {
+    needsApiKey: true,
+    needsEndpoint: true,
+    needsModel: true,
+    needsBaiduAppId: false,
+    apiKeyHint: "从 DeepSeek 控制台获取 API Key",
+    defaultEndpoint: "https://api.deepseek.com/v1/chat/completions",
+    defaultModel: "deepseek-chat",
+    modelHint: "推荐: deepseek-chat",
+  },
+  openai: {
+    needsApiKey: true,
+    needsEndpoint: true,
+    needsModel: true,
+    needsBaiduAppId: false,
+    apiKeyHint: "从 OpenAI 获取 API Key",
+    defaultEndpoint: "https://api.openai.com/v1/chat/completions",
+    defaultModel: "gpt-4o-mini",
+    modelHint: "推荐: gpt-4o-mini (便宜) 或 gpt-4o",
+  },
+  glm: {
+    needsApiKey: true,
+    needsEndpoint: true,
+    needsModel: true,
+    needsBaiduAppId: false,
+    apiKeyHint: "从智谱 AI 开放平台获取 API Key",
+    defaultEndpoint: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+    defaultModel: "glm-4-flash",
+    modelHint: "推荐: glm-4-flash (免费) 或 glm-4",
+  },
+};
+
+// 根据翻译源显示/隐藏相关设置
+function updateTranslatorSettings() {
   const translator = elements.translator.value;
-  if (translator === "deepl") {
+  const config = translatorConfig[translator] || {};
+
+  // API Key
+  if (config.needsApiKey) {
     elements.apiKeyRow.classList.add("show");
+    elements.apiKeyHint.textContent = config.apiKeyHint || "";
   } else {
     elements.apiKeyRow.classList.remove("show");
+  }
+
+  // 百度 AppID
+  if (config.needsBaiduAppId) {
+    elements.baiduAppIdRow.classList.add("show");
+  } else {
+    elements.baiduAppIdRow.classList.remove("show");
+  }
+
+  // 自定义端点
+  if (config.needsEndpoint) {
+    elements.apiEndpointRow.classList.add("show");
+    // 显示默认端点作为 placeholder
+    if (config.defaultEndpoint) {
+      elements.apiEndpoint.placeholder = config.defaultEndpoint;
+    } else {
+      elements.apiEndpoint.placeholder = "留空使用默认端点";
+    }
+  } else {
+    elements.apiEndpointRow.classList.remove("show");
+  }
+
+  // AI 模型
+  if (config.needsModel) {
+    elements.aiModelRow.classList.add("show");
+    elements.aiModelHint.textContent = config.modelHint || "";
+    // 显示默认模型作为 placeholder
+    if (config.defaultModel) {
+      elements.aiModel.placeholder = config.defaultModel;
+    }
+  } else {
+    elements.aiModelRow.classList.remove("show");
   }
 }
 
@@ -33,7 +139,10 @@ async function loadSettings() {
     enabled: true,
     translator: "google",
     apiKey: "",
-    sourceLang: "en",
+    baiduAppId: "",
+    apiEndpoint: "",
+    aiModel: "",
+    sourceLang: "auto",
     targetLang: "zh-CN",
     fontSize: "1.8",
     fontColor: "#ffd700",
@@ -43,6 +152,9 @@ async function loadSettings() {
   elements.enabled.checked = settings.enabled;
   elements.translator.value = settings.translator;
   elements.apiKey.value = settings.apiKey;
+  elements.baiduAppId.value = settings.baiduAppId;
+  elements.apiEndpoint.value = settings.apiEndpoint;
+  elements.aiModel.value = settings.aiModel;
   elements.sourceLang.value = settings.sourceLang;
   elements.targetLang.value = settings.targetLang;
   elements.fontSize.value = settings.fontSize;
@@ -50,7 +162,7 @@ async function loadSettings() {
   elements.fontColorPicker.value = settings.fontColor;
   elements.bgOpacity.value = settings.bgOpacity;
 
-  updateApiKeyVisibility();
+  updateTranslatorSettings();
 }
 
 // 保存设置
@@ -59,6 +171,9 @@ async function saveSettings() {
     enabled: elements.enabled.checked,
     translator: elements.translator.value,
     apiKey: elements.apiKey.value,
+    baiduAppId: elements.baiduAppId.value,
+    apiEndpoint: elements.apiEndpoint.value,
+    aiModel: elements.aiModel.value,
     sourceLang: elements.sourceLang.value,
     targetLang: elements.targetLang.value,
     fontSize: elements.fontSize.value,
@@ -94,15 +209,18 @@ elements.fontColor.addEventListener("input", (e) => {
   }
 });
 
-// 翻译源变化时更新 API Key 显示
+// 翻译源变化时更新显示
 elements.translator.addEventListener("change", () => {
-  updateApiKeyVisibility();
+  updateTranslatorSettings();
   saveSettings();
 });
 
-// 监听所有设置变化（使用 input 事件实现实时更新）
+// 监听所有设置变化
 elements.enabled.addEventListener("change", saveSettings);
 elements.apiKey.addEventListener("input", saveSettings);
+elements.baiduAppId.addEventListener("input", saveSettings);
+elements.apiEndpoint.addEventListener("input", saveSettings);
+elements.aiModel.addEventListener("input", saveSettings);
 elements.sourceLang.addEventListener("change", saveSettings);
 elements.targetLang.addEventListener("change", saveSettings);
 elements.fontSize.addEventListener("input", saveSettings);
@@ -110,10 +228,8 @@ elements.bgOpacity.addEventListener("input", saveSettings);
 
 // 重置字幕位置
 elements.resetPosition.addEventListener("click", async () => {
-  // 清除保存的位置
   await chrome.storage.sync.remove("subtitlePosition");
 
-  // 通知所有 YouTube 标签页重置位置
   const tabs = await chrome.tabs.query({ url: "https://www.youtube.com/*" });
   tabs.forEach((tab) => {
     chrome.tabs.sendMessage(tab.id, {
