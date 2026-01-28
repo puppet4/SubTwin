@@ -18,9 +18,6 @@
       "48": "icons/icon48.png"
     }
   },
-  "background": {
-    "service_worker": "background.js"
-  },
   "content_scripts": [
     {
       "matches": ["https://www.youtube.com/*"],
@@ -37,14 +34,5 @@
     "https://translate.googleapis.com/*",
     "https://api-free.deepl.com/*",
     "https://api.deepl.com/*"
-  ],
-  "commands": {
-    "toggle-translation": {
-      "suggested_key": {
-        "default": "Alt+T",
-        "mac": "Alt+T"
-      },
-      "description": "开关翻译字幕"
-    }
-  }
+  ]
 }

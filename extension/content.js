@@ -1,6 +1,9 @@
 /**
  * SubTwin - YouTube 字幕翻译插件
- * Phase 7: 多翻译源支持
+ * Phase 9: UX 优化
+ * - 拖拽字幕位置
+ * - 全屏适配
+ * - 翻译状态提示
  */
 
 (function () {
@@ -12,10 +15,14 @@
   const CAPTION_CONTAINER_SELECTOR = ".ytp-caption-window-container";
   const CAPTION_SEGMENT_SELECTOR = ".ytp-caption-segment";
 
+  // 预翻译配置
+  const PRE_TRANSLATE_MIN_LENGTH = 15;
+  const PRE_TRANSLATE_DEBOUNCE = 300;
+
   // 默认设置
   let settings = {
     enabled: true,
-    translator: "mymemory",
+    translator: "google",
     apiKey: "",
     sourceLang: "en",
     targetLang: "zh-CN",
@@ -27,26 +34,79 @@
   let observer = null;
   let currentText = "";
   let lastOutputText = "";
-  let translationCache = new Map();
   let translationOverlay = null;
 
-  /**
-   * 加载设置
-   */
+  // 翻译缓存
+  let translationCache = new Map();
+  let pendingTranslations = new Map();
+  let preTranslateTimer = null;
+
+  // 拖拽状态
+  let isDragging = false;
+  let dragOffset = { x: 0, y: 0 };
+  let savedPosition = null; // { x百分比, y百分比 }
+
+  // ========== 缓存持久化 ==========
+
+  function getCacheKey(text) {
+    return `${settings.translator}|${settings.sourceLang}|${settings.targetLang}|${text}`;
+  }
+
+  async function loadCache() {
+    try {
+      const result = await chrome.storage.local.get("translationCache");
+      if (result.translationCache) {
+        const cached = JSON.parse(result.translationCache);
+        const prefix = `${settings.translator}|${settings.sourceLang}|${settings.targetLang}|`;
+        for (const [key, value] of Object.entries(cached)) {
+          if (key.startsWith(prefix)) {
+            translationCache.set(key, value);
+          }
+        }
+        console.log(`[SubTwin] 已加载 ${translationCache.size} 条缓存`);
+      }
+    } catch (e) {
+      console.log("[SubTwin] 加载缓存失败:", e);
+    }
+  }
+
+  let saveCacheTimer = null;
+  function saveCache() {
+    if (saveCacheTimer) return;
+    saveCacheTimer = setTimeout(async () => {
+      saveCacheTimer = null;
+      try {
+        const cacheObj = Object.fromEntries(translationCache);
+        await chrome.storage.local.set({
+          translationCache: JSON.stringify(cacheObj),
+        });
+      } catch (e) {
+        console.log("[SubTwin] 保存缓存失败:", e);
+      }
+    }, 2000);
+  }
+
+  // ========== 设置管理 ==========
+
   async function loadSettings() {
     try {
       const stored = await chrome.storage.sync.get(settings);
       settings = { ...settings, ...stored };
+
+      // 加载保存的位置
+      const posResult = await chrome.storage.sync.get("subtitlePosition");
+      if (posResult.subtitlePosition) {
+        savedPosition = posResult.subtitlePosition;
+      }
+
       console.log("[SubTwin] 设置已加载:", settings);
       applyStyles();
+      await loadCache();
     } catch (e) {
       console.log("[SubTwin] 使用默认设置");
     }
   }
 
-  /**
-   * 应用样式设置
-   */
   function applyStyles() {
     if (!translationOverlay) return;
 
@@ -58,9 +118,8 @@
     }
   }
 
-  /**
-   * 创建翻译字幕显示元素
-   */
+  // ========== UI：翻译字幕显示 ==========
+
   function createTranslationOverlay() {
     if (translationOverlay) {
       return translationOverlay;
@@ -75,15 +134,16 @@
     translationOverlay.id = "subtwin-translation";
     translationOverlay.style.cssText = `
       position: absolute;
-      bottom: 80px;
-      left: 50%;
-      transform: translateX(-50%);
       z-index: 60;
       text-align: center;
-      pointer-events: none;
       max-width: 80%;
       transition: opacity 0.15s ease;
+      cursor: grab;
+      user-select: none;
     `;
+
+    // 应用保存的位置或默认位置
+    applyPosition(playerContainer);
 
     const textElement = document.createElement("span");
     textElement.id = "subtwin-text";
@@ -103,13 +163,121 @@
     translationOverlay.appendChild(textElement);
     playerContainer.appendChild(translationOverlay);
 
+    // 设置拖拽
+    setupDrag(playerContainer);
+
     console.log("[SubTwin] 翻译字幕显示元素已创建");
     return translationOverlay;
   }
 
   /**
-   * 显示翻译字幕
+   * 应用位置（保存的或默认的）
    */
+  function applyPosition(container) {
+    if (!translationOverlay) return;
+
+    if (savedPosition) {
+      // 使用保存的百分比位置
+      translationOverlay.style.left = `${savedPosition.xPercent}%`;
+      translationOverlay.style.bottom = "";
+      translationOverlay.style.top = `${savedPosition.yPercent}%`;
+      translationOverlay.style.transform = "translateX(-50%)";
+    } else {
+      // 默认位置：底部居中
+      translationOverlay.style.left = "50%";
+      translationOverlay.style.bottom = "80px";
+      translationOverlay.style.top = "";
+      translationOverlay.style.transform = "translateX(-50%)";
+    }
+  }
+
+  /**
+   * 重置到默认位置
+   */
+  function resetPosition() {
+    savedPosition = null;
+    if (translationOverlay) {
+      const container = translationOverlay.parentElement;
+      if (container) {
+        applyPosition(container);
+      }
+    }
+  }
+
+  // ========== 拖拽功能 ==========
+
+  function setupDrag(container) {
+    translationOverlay.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return; // 只响应左键
+      isDragging = true;
+      translationOverlay.style.cursor = "grabbing";
+
+      const rect = translationOverlay.getBoundingClientRect();
+      dragOffset.x = e.clientX - rect.left - rect.width / 2;
+      dragOffset.y = e.clientY - rect.top - rect.height / 2;
+
+      // 拖拽时允许接收鼠标事件
+      translationOverlay.style.pointerEvents = "auto";
+
+      e.preventDefault();
+      e.stopPropagation();
+    });
+
+    document.addEventListener("mousemove", (e) => {
+      if (!isDragging || !translationOverlay) return;
+
+      const containerRect = container.getBoundingClientRect();
+
+      // 计算相对于容器的百分比位置
+      const xPercent =
+        ((e.clientX - dragOffset.x - containerRect.left) / containerRect.width) * 100;
+      const yPercent =
+        ((e.clientY - dragOffset.y - containerRect.top) / containerRect.height) * 100;
+
+      // 限制范围
+      const clampedX = Math.max(5, Math.min(95, xPercent));
+      const clampedY = Math.max(5, Math.min(95, yPercent));
+
+      translationOverlay.style.left = `${clampedX}%`;
+      translationOverlay.style.top = `${clampedY}%`;
+      translationOverlay.style.bottom = "";
+      translationOverlay.style.transform = "translateX(-50%)";
+
+      savedPosition = { xPercent: clampedX, yPercent: clampedY };
+    });
+
+    document.addEventListener("mouseup", () => {
+      if (!isDragging) return;
+      isDragging = false;
+
+      if (translationOverlay) {
+        translationOverlay.style.cursor = "grab";
+        translationOverlay.style.pointerEvents = "none";
+      }
+
+      // 保存位置
+      if (savedPosition) {
+        chrome.storage.sync.set({ subtitlePosition: savedPosition });
+      }
+    });
+  }
+
+  // ========== 全屏适配 ==========
+
+  function setupFullscreenListener() {
+    document.addEventListener("fullscreenchange", () => {
+      // 全屏切换时重新应用位置
+      if (translationOverlay) {
+        const container = translationOverlay.parentElement;
+        if (container) {
+          applyPosition(container);
+        }
+      }
+    });
+  }
+
+  // ========== 显示/隐藏翻译 ==========
+
   function showTranslation(text) {
     if (!settings.enabled) return;
 
@@ -119,14 +287,58 @@
     const textElement = overlay.querySelector("#subtwin-text");
     if (textElement) {
       textElement.textContent = text;
+      textElement.style.fontStyle = "normal";
+      textElement.style.opacity = "1";
       overlay.style.opacity = "1";
       overlay.style.display = "block";
     }
   }
 
   /**
-   * 隐藏翻译字幕
+   * 显示翻译中状态
    */
+  function showLoading() {
+    if (!settings.enabled) return;
+
+    const overlay = createTranslationOverlay();
+    if (!overlay) return;
+
+    const textElement = overlay.querySelector("#subtwin-text");
+    if (textElement) {
+      textElement.textContent = "翻译中...";
+      textElement.style.fontStyle = "italic";
+      textElement.style.opacity = "0.6";
+      overlay.style.opacity = "1";
+      overlay.style.display = "block";
+    }
+  }
+
+  /**
+   * 显示错误状态
+   */
+  function showError() {
+    if (!settings.enabled) return;
+
+    const overlay = createTranslationOverlay();
+    if (!overlay) return;
+
+    const textElement = overlay.querySelector("#subtwin-text");
+    if (textElement) {
+      textElement.textContent = "翻译失败";
+      textElement.style.fontStyle = "italic";
+      textElement.style.opacity = "0.4";
+      overlay.style.opacity = "1";
+      overlay.style.display = "block";
+    }
+
+    // 2秒后自动隐藏错误提示
+    setTimeout(() => {
+      if (textElement && textElement.textContent === "翻译失败") {
+        hideTranslation();
+      }
+    }, 2000);
+  }
+
   function hideTranslation() {
     if (translationOverlay) {
       translationOverlay.style.opacity = "0";
@@ -138,9 +350,8 @@
     }
   }
 
-  /**
-   * 获取当前字幕文本
-   */
+  // ========== 字幕处理 ==========
+
   function getCaptionText() {
     const segments = document.querySelectorAll(CAPTION_SEGMENT_SELECTOR);
     if (segments.length === 0) {
@@ -155,9 +366,6 @@
     return text.trim() || null;
   }
 
-  /**
-   * 检查新字幕是否是旧字幕的扩展
-   */
   function isExtension(oldText, newText) {
     if (!oldText || !newText) {
       return false;
@@ -165,11 +373,8 @@
     return newText.startsWith(oldText);
   }
 
-  // ========== 翻译 API 实现 ==========
+  // ========== 翻译 API ==========
 
-  /**
-   * MyMemory 翻译 (免费)
-   */
   async function translateWithMyMemory(text, sourceLang, targetLang) {
     const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${sourceLang}|${targetLang}`;
     const response = await fetch(url);
@@ -181,11 +386,7 @@
     throw new Error(data.responseDetails || "MyMemory 翻译失败");
   }
 
-  /**
-   * Google 翻译 (免费接口)
-   */
   async function translateWithGoogle(text, sourceLang, targetLang) {
-    // 转换语言代码
     const sl = sourceLang === "zh-CN" ? "zh-CN" : sourceLang;
     const tl = targetLang === "zh-CN" ? "zh-CN" : targetLang;
 
@@ -205,31 +406,26 @@
     throw new Error("Google 翻译失败");
   }
 
-  /**
-   * DeepL 翻译 (需要 API Key)
-   */
   async function translateWithDeepL(text, sourceLang, targetLang, apiKey) {
     if (!apiKey) {
       throw new Error("DeepL 需要 API Key");
     }
 
-    // 转换语言代码为 DeepL 格式
     const langMap = {
-      "en": "EN",
+      en: "EN",
       "zh-CN": "ZH",
       "zh-TW": "ZH",
-      "ja": "JA",
-      "ko": "KO",
-      "fr": "FR",
-      "de": "DE",
-      "es": "ES",
-      "ru": "RU",
+      ja: "JA",
+      ko: "KO",
+      fr: "FR",
+      de: "DE",
+      es: "ES",
+      ru: "RU",
     };
 
     const sl = langMap[sourceLang] || sourceLang.toUpperCase();
     const tl = langMap[targetLang] || targetLang.toUpperCase();
 
-    // 判断是免费还是付费 API（免费 API Key 以 :fx 结尾）
     const isFreeApi = apiKey.endsWith(":fx");
     const baseUrl = isFreeApi
       ? "https://api-free.deepl.com/v2/translate"
@@ -238,7 +434,7 @@
     const response = await fetch(baseUrl, {
       method: "POST",
       headers: {
-        "Authorization": `DeepL-Auth-Key ${apiKey}`,
+        Authorization: `DeepL-Auth-Key ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -259,41 +455,85 @@
     throw new Error("DeepL 翻译失败");
   }
 
-  /**
-   * 调用翻译 API (根据设置选择翻译源)
-   */
-  async function translateText(text) {
-    const cacheKey = `${settings.translator}|${settings.sourceLang}|${settings.targetLang}|${text}`;
+  async function translateText(text, isPrefetch = false) {
+    const cacheKey = getCacheKey(text);
+
     if (translationCache.has(cacheKey)) {
       return translationCache.get(cacheKey);
     }
 
-    try {
-      let translatedText;
-
-      switch (settings.translator) {
-        case "google":
-          translatedText = await translateWithGoogle(text, settings.sourceLang, settings.targetLang);
-          break;
-        case "deepl":
-          translatedText = await translateWithDeepL(text, settings.sourceLang, settings.targetLang, settings.apiKey);
-          break;
-        case "mymemory":
-        default:
-          translatedText = await translateWithMyMemory(text, settings.sourceLang, settings.targetLang);
-          break;
-      }
-
-      translationCache.set(cacheKey, translatedText);
-      return translatedText;
-    } catch (error) {
-      console.error(`[SubTwin] 翻译错误 (${settings.translator}):`, error.message);
-      return null;
+    if (pendingTranslations.has(cacheKey)) {
+      return pendingTranslations.get(cacheKey);
     }
+
+    const translationPromise = (async () => {
+      try {
+        let translatedText;
+
+        switch (settings.translator) {
+          case "google":
+            translatedText = await translateWithGoogle(
+              text,
+              settings.sourceLang,
+              settings.targetLang
+            );
+            break;
+          case "deepl":
+            translatedText = await translateWithDeepL(
+              text,
+              settings.sourceLang,
+              settings.targetLang,
+              settings.apiKey
+            );
+            break;
+          case "mymemory":
+          default:
+            translatedText = await translateWithMyMemory(
+              text,
+              settings.sourceLang,
+              settings.targetLang
+            );
+            break;
+        }
+
+        translationCache.set(cacheKey, translatedText);
+        saveCache();
+
+        if (isPrefetch) {
+          console.log("[SubTwin] 预翻译完成:", text.substring(0, 20) + "...");
+        }
+
+        return translatedText;
+      } catch (error) {
+        console.error(
+          `[SubTwin] 翻译错误 (${settings.translator}):`,
+          error.message
+        );
+        return null;
+      } finally {
+        pendingTranslations.delete(cacheKey);
+      }
+    })();
+
+    pendingTranslations.set(cacheKey, translationPromise);
+    return translationPromise;
+  }
+
+  function preTranslate(text) {
+    if (!text || text.length < PRE_TRANSLATE_MIN_LENGTH) {
+      return;
+    }
+
+    const cacheKey = getCacheKey(text);
+    if (translationCache.has(cacheKey) || pendingTranslations.has(cacheKey)) {
+      return;
+    }
+
+    translateText(text, true);
   }
 
   /**
-   * 输出字幕并翻译
+   * 输出字幕并显示翻译（带状态提示）
    */
   async function outputCaption(text) {
     if (!text || text === lastOutputText || !settings.enabled) {
@@ -303,16 +543,23 @@
 
     console.log("[SubTwin] 原文:", text);
 
+    // 检查缓存：有缓存直接显示，无缓存显示 loading
+    const cacheKey = getCacheKey(text);
+    if (!translationCache.has(cacheKey)) {
+      showLoading();
+    }
+
     const translated = await translateText(text);
     if (translated) {
       console.log("[SubTwin] 译文:", translated);
       showTranslation(translated);
+    } else {
+      showError();
     }
   }
 
-  /**
-   * 处理字幕变化
-   */
+  // ========== 字幕变化处理 ==========
+
   function onCaptionChange() {
     if (!settings.enabled) return;
 
@@ -329,6 +576,7 @@
 
     if (!currentText) {
       currentText = newText;
+      preTranslate(newText);
       return;
     }
 
@@ -338,50 +586,36 @@
 
     if (isExtension(currentText, newText)) {
       currentText = newText;
+
+      clearTimeout(preTranslateTimer);
+      preTranslateTimer = setTimeout(() => {
+        preTranslate(currentText);
+      }, PRE_TRANSLATE_DEBOUNCE);
+
       return;
     }
 
     outputCaption(currentText);
     currentText = newText;
+    preTranslate(newText);
   }
 
-  /**
-   * 切换翻译开关
-   */
-  function toggleTranslation() {
-    settings.enabled = !settings.enabled;
-    chrome.storage.sync.set({ enabled: settings.enabled });
+  // ========== 消息监听 ==========
 
-    if (settings.enabled) {
-      console.log("[SubTwin] 翻译已开启");
-    } else {
-      console.log("[SubTwin] 翻译已关闭");
-      hideTranslation();
-    }
-  }
-
-  /**
-   * 监听来自 background/popup 的消息
-   */
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.action === "toggle") {
-      toggleTranslation();
-      sendResponse({ enabled: settings.enabled });
-    }
-
     if (message.action === "updateSettings") {
       const oldKey = `${settings.translator}|${settings.sourceLang}|${settings.targetLang}`;
       settings = { ...settings, ...message.settings };
       const newKey = `${settings.translator}|${settings.sourceLang}|${settings.targetLang}`;
 
-      // 翻译源或语言改变时清除缓存
       if (oldKey !== newKey) {
         translationCache.clear();
-        console.log("[SubTwin] 翻译设置已更改，缓存已清除");
+        pendingTranslations.clear();
+        loadCache();
+        console.log("[SubTwin] 翻译设置已更改");
       }
 
       applyStyles();
-      console.log("[SubTwin] 设置已更新:", settings);
 
       if (!settings.enabled) {
         hideTranslation();
@@ -389,12 +623,16 @@
       sendResponse({ success: true });
     }
 
+    if (message.action === "resetPosition") {
+      resetPosition();
+      sendResponse({ success: true });
+    }
+
     return true;
   });
 
-  /**
-   * 开始监听字幕变化
-   */
+  // ========== 启动 ==========
+
   function startObserver() {
     const targetNode = document.body;
 
@@ -444,11 +682,12 @@
       characterData: true,
     });
 
-    console.log("[SubTwin] 字幕监听已启动");
+    console.log("[SubTwin] 字幕监听已启动（UX 优化版）");
   }
 
   // 初始化
   loadSettings().then(() => {
+    setupFullscreenListener();
     startObserver();
   });
 })();

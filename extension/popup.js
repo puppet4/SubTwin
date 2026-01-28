@@ -14,6 +14,7 @@ const elements = {
   fontColor: document.getElementById("fontColor"),
   fontColorPicker: document.getElementById("fontColorPicker"),
   bgOpacity: document.getElementById("bgOpacity"),
+  resetPosition: document.getElementById("resetPosition"),
 };
 
 // 根据翻译源显示/隐藏 API Key 输入框
@@ -30,7 +31,7 @@ function updateApiKeyVisibility() {
 async function loadSettings() {
   const settings = await chrome.storage.sync.get({
     enabled: true,
-    translator: "mymemory",
+    translator: "google",
     apiKey: "",
     sourceLang: "en",
     targetLang: "zh-CN",
@@ -106,6 +107,20 @@ elements.sourceLang.addEventListener("change", saveSettings);
 elements.targetLang.addEventListener("change", saveSettings);
 elements.fontSize.addEventListener("input", saveSettings);
 elements.bgOpacity.addEventListener("input", saveSettings);
+
+// 重置字幕位置
+elements.resetPosition.addEventListener("click", async () => {
+  // 清除保存的位置
+  await chrome.storage.sync.remove("subtitlePosition");
+
+  // 通知所有 YouTube 标签页重置位置
+  const tabs = await chrome.tabs.query({ url: "https://www.youtube.com/*" });
+  tabs.forEach((tab) => {
+    chrome.tabs.sendMessage(tab.id, {
+      action: "resetPosition",
+    }).catch(() => {});
+  });
+});
 
 // 初始化
 loadSettings();
