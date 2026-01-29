@@ -70,6 +70,7 @@
     fontSize: "1.8",
     fontColor: "#ffd700",
     bgOpacity: "0.75",
+    ocrMode: false,
   };
 
   let observer = null;
@@ -81,6 +82,13 @@
   let translationCache = new Map();
   let pendingTranslations = new Map();
   let preTranslateTimer = null;
+
+  // AI OCR 状态
+  let ocrRunning = false;
+  let ocrTimer = null;
+  let ocrCanvas = null;
+  let ocrCtx = null;
+  let lastOcrText = "";
 
   // 拖拽状态
   let isDragging = false;
@@ -220,26 +228,47 @@
 
     toggleButton.addEventListener("mouseenter", () => {
       toggleButton.style.opacity = "1";
-      // 悬停时检测字幕，如果没有就显示提示
-      if (!hasCaptions()) {
-        showToast("未检测到字幕，无法开启翻译");
-      }
+      showSettingsPanel();
     });
 
-    toggleButton.addEventListener("mouseleave", () => {
+    toggleButton.addEventListener("mouseleave", (e) => {
       toggleButton.style.opacity = "0.9";
+      // 如果鼠标移到了设置面板上，不关闭
+      setTimeout(() => {
+        if (settingsPanel && !settingsPanel.matches(':hover') && !toggleButton.matches(':hover')) {
+          hideSettingsPanel();
+        }
+      }, 100);
     });
 
-    toggleButton.addEventListener("click", (e) => {
+    toggleButton.addEventListener("click", async (e) => {
       e.preventDefault();
       e.stopPropagation();
-      toggleSettingsPanel();
+      settings.enabled = !settings.enabled;
+      await saveAndApplySettings();
+      updateToggleButton();
+      syncPanelWithSettings();
+      if (!settings.enabled) {
+        hideTranslation();
+        if (settings.ocrMode) stopOCR();
+      } else if (settings.ocrMode) {
+        startOCR();
+      }
     });
 
     rightControls.insertBefore(toggleButton, rightControls.firstChild);
 
     // 创建设置面板
     createSettingsPanel();
+
+    // 设置面板鼠标离开时关闭
+    settingsPanel.addEventListener("mouseleave", () => {
+      setTimeout(() => {
+        if (settingsPanel && !settingsPanel.matches(':hover') && !toggleButton.matches(':hover')) {
+          hideSettingsPanel();
+        }
+      }, 100);
+    });
 
     // 点击外部关闭面板
     document.addEventListener("click", (e) => {
@@ -393,6 +422,14 @@
         </label>
       </div>
 
+      <div class="menu-item">
+        <span class="menu-label">硬字幕 AI</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="subtwin-ocr" ${settings.ocrMode ? "checked" : ""}>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
       <div class="divider"></div>
 
       <div class="menu-item">
@@ -472,7 +509,24 @@
       settings.enabled = enabledCheckbox.checked;
       await saveAndApplySettings();
       updateToggleButton();
-      if (!settings.enabled) hideTranslation();
+      if (!settings.enabled) {
+        hideTranslation();
+        if (settings.ocrMode) stopOCR();
+      } else if (settings.ocrMode) {
+        startOCR();
+      }
+    });
+
+    // AI OCR 模式
+    const ocrCheckbox = settingsPanel.querySelector("#subtwin-ocr");
+    ocrCheckbox.addEventListener("change", async () => {
+      settings.ocrMode = ocrCheckbox.checked;
+      await saveAndApplySettings();
+      if (settings.ocrMode && settings.enabled) {
+        startOCR();
+      } else {
+        stopOCR();
+      }
     });
 
     // 翻译源
@@ -544,6 +598,7 @@
       fontSize: settings.fontSize,
       fontColor: settings.fontColor,
       bgOpacity: settings.bgOpacity,
+      ocrMode: settings.ocrMode,
     });
 
     applyStyles();
@@ -552,78 +607,10 @@
   }
 
   /**
-   * 检测是否存在字幕
-   */
-  function hasCaptions() {
-    const container = document.querySelector(platformConfig.captionContainer);
-    if (container) return true;
-    // 也检查是否有字幕片段
-    const segments = document.querySelectorAll(platformConfig.captionSegment);
-    return segments.length > 0;
-  }
-
-  /**
-   * 显示浮动提示（在按钮上方）
-   */
-  function showToast(message) {
-    const playerContainer = document.querySelector(platformConfig.player);
-    if (!playerContainer || !toggleButton) return;
-
-    // 移除已有提示
-    const existing = playerContainer.querySelector("#subtwin-toast");
-    if (existing) existing.remove();
-
-    const toast = document.createElement("div");
-    toast.id = "subtwin-toast";
-    toast.textContent = message;
-    toast.style.cssText = `
-      position: absolute;
-      background: rgba(28, 28, 28, 0.95);
-      color: #fff;
-      padding: 10px 16px;
-      border-radius: 6px;
-      font-size: 14px;
-      z-index: 200;
-      white-space: nowrap;
-      pointer-events: none;
-      opacity: 1;
-      transition: opacity 0.3s ease;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-    `;
-
-    playerContainer.appendChild(toast);
-
-    // 定位到按钮上方
-    const playerRect = playerContainer.getBoundingClientRect();
-    const buttonRect = toggleButton.getBoundingClientRect();
-    const toastRect = toast.getBoundingClientRect();
-
-    const right = playerRect.right - buttonRect.right + (buttonRect.width - toastRect.width) / 2;
-    const bottom = playerRect.bottom - buttonRect.top + 8;
-
-    toast.style.right = `${Math.max(8, right)}px`;
-    toast.style.bottom = `${bottom}px`;
-
-    // 鼠标移开按钮时消失
-    const hideToast = () => {
-      toast.style.opacity = "0";
-      setTimeout(() => toast.remove(), 300);
-      toggleButton.removeEventListener("mouseleave", hideToast);
-    };
-    toggleButton.addEventListener("mouseleave", hideToast);
-  }
-
-  /**
    * 切换设置面板显示
    */
   function toggleSettingsPanel() {
     if (!settingsPanel) return;
-
-    // 检测是否有字幕
-    if (!hasCaptions()) {
-      showToast("未检测到字幕，无法开启翻译");
-      return;
-    }
 
     if (settingsPanel.style.display === "none") {
       showSettingsPanel();
@@ -673,6 +660,7 @@
     if (!settingsPanel) return;
 
     settingsPanel.querySelector("#subtwin-enabled").checked = settings.enabled;
+    settingsPanel.querySelector("#subtwin-ocr").checked = settings.ocrMode;
     settingsPanel.querySelector("#subtwin-translator").value =
       settings.translator;
     settingsPanel.querySelector("#subtwin-source").value = settings.sourceLang;
@@ -1548,6 +1536,7 @@
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === "updateSettings") {
       const oldKey = `${settings.translator}|${settings.sourceLang}|${settings.targetLang}`;
+      const oldOcrMode = settings.ocrMode;
       settings = { ...settings, ...message.settings };
       const newKey = `${settings.translator}|${settings.sourceLang}|${settings.targetLang}`;
 
@@ -1555,14 +1544,22 @@
         translationCache.clear();
         pendingTranslations.clear();
         loadCache();
-        console.log("[SubTwin] 翻译设置已更改");
       }
 
       applyStyles();
       updateToggleButton();
+      syncPanelWithSettings();
 
       if (!settings.enabled) {
         hideTranslation();
+        if (oldOcrMode) stopOCR();
+      } else {
+        // 处理 ocrMode 变化
+        if (settings.ocrMode && !oldOcrMode) {
+          startOCR();
+        } else if (!settings.ocrMode && oldOcrMode) {
+          stopOCR();
+        }
       }
       sendResponse({ success: true });
     }
@@ -1574,6 +1571,255 @@
 
     return true;
   });
+
+  // ========== AI 视觉 OCR ==========
+
+  /**
+   * 获取视频元素
+   */
+  function getVideoElement() {
+    return document.querySelector('video');
+  }
+
+  /**
+   * 初始化 OCR Canvas
+   */
+  function initOCRCanvas() {
+    if (ocrCanvas) return;
+    ocrCanvas = document.createElement('canvas');
+    ocrCtx = ocrCanvas.getContext('2d', { willReadFrequently: true });
+  }
+
+  /**
+   * 截取视频字幕区域
+   */
+  function captureSubtitleRegion() {
+    const video = getVideoElement();
+    if (!video || video.readyState < 2 || video.paused) {
+      return null;
+    }
+
+    initOCRCanvas();
+
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    if (vw === 0 || vh === 0) return null;
+
+    // 字幕区域：底部 15%，左右各留 5%
+    const regionX = Math.floor(vw * 0.05);
+    const regionY = Math.floor(vh * 0.85);
+    const regionW = Math.floor(vw * 0.9);
+    const regionH = Math.floor(vh * 0.15);
+
+    ocrCanvas.width = regionW;
+    ocrCanvas.height = regionH;
+
+    ocrCtx.imageSmoothingEnabled = true;
+    ocrCtx.imageSmoothingQuality = 'high';
+
+    ocrCtx.drawImage(
+      video,
+      regionX, regionY, regionW, regionH,
+      0, 0, regionW, regionH
+    );
+
+    try {
+      return ocrCanvas.toDataURL('image/jpeg', 0.85);
+    } catch (e) {
+      console.error('[SubTwin OCR] 截图失败:', e);
+      return null;
+    }
+  }
+
+  /**
+   * AI 视觉 OCR - 使用大模型识别并翻译字幕
+   */
+  async function aiVisionOCR(imageData) {
+    if (!settings.apiKey) return null;
+
+    const provider = settings.translator;
+    const model = getVisionModel(provider);
+    const endpoint = settings.apiEndpoint || DEFAULT_ENDPOINTS[provider];
+    const targetLangName = LANG_NAMES[settings.targetLang] || settings.targetLang;
+
+    const prompt = `识别图片中的字幕文字，并翻译成${targetLangName}。
+要求：
+1. 如果图片中没有字幕文字，回复"无"
+2. 只输出翻译结果，不要任何解释
+3. 保持原文的语气和风格`;
+
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${settings.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: model,
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: prompt },
+                { type: "image_url", image_url: { url: imageData } }
+              ]
+            }
+          ],
+          max_tokens: 500,
+          temperature: 0.1,
+        }),
+      });
+
+      if (!response.ok) {
+        console.error(`[SubTwin OCR] API 错误: ${response.status}`);
+        return null;
+      }
+
+      const data = await response.json();
+      if (data.choices && data.choices[0] && data.choices[0].message) {
+        const result = data.choices[0].message.content.trim();
+        if (result === '无' || result.length < 2) return null;
+        return result;
+      }
+
+      return null;
+    } catch (e) {
+      console.error('[SubTwin OCR] 请求失败:', e);
+      return null;
+    }
+  }
+
+  /**
+   * 获取视觉模型名称
+   */
+  function getVisionModel(provider) {
+    if (settings.aiModel) return settings.aiModel;
+    switch (provider) {
+      case 'openai': return 'gpt-4o-mini';
+      case 'glm': return 'glm-4v-flash';
+      default: return 'gpt-4o-mini';
+    }
+  }
+
+  /**
+   * 检查是否可以使用 AI 视觉
+   */
+  function canUseAIVision() {
+    return settings.apiKey && ['openai', 'glm'].includes(settings.translator);
+  }
+
+  /**
+   * 启动 AI OCR
+   */
+  async function startOCR() {
+    if (ocrRunning) return;
+
+    if (!canUseAIVision()) {
+      console.log('[SubTwin OCR] 需要配置 OpenAI 或 GLM API Key');
+      return;
+    }
+
+    ocrRunning = true;
+    lastOcrText = "";
+    ocrLoop();
+  }
+
+  /**
+   * OCR 识别主循环
+   */
+  async function ocrLoop() {
+    if (!ocrRunning || !settings.enabled || !settings.ocrMode) {
+      ocrRunning = false;
+      return;
+    }
+
+    const imageData = captureSubtitleRegion();
+    if (imageData) {
+      const translated = await aiVisionOCR(imageData);
+      if (translated && translated !== lastOcrText) {
+        lastOcrText = translated;
+        showTranslation(translated);
+      } else if (!translated && lastOcrText) {
+        // 原字幕消失，隐藏翻译
+        lastOcrText = "";
+        hideTranslation();
+      }
+    }
+
+    // 间隔 1.5 秒
+    ocrTimer = setTimeout(() => ocrLoop(), 1500);
+  }
+
+  /**
+   * 停止 OCR
+   */
+  function stopOCR() {
+    ocrRunning = false;
+    if (ocrTimer) {
+      clearTimeout(ocrTimer);
+      ocrTimer = null;
+    }
+    lastOcrText = "";
+  }
+
+  // ========== 自动检测字幕模式 ==========
+
+  let autoDetectTimer = null;
+  let lastCaptionState = null;
+
+  /**
+   * 检测是否存在 CC 字幕
+   */
+  function hasCaptions() {
+    const container = document.querySelector(platformConfig.captionContainer);
+    if (container) return true;
+    const segments = document.querySelectorAll(platformConfig.captionSegment);
+    return segments.length > 0;
+  }
+
+  /**
+   * 自动检测并切换字幕模式
+   */
+  async function autoDetectCaptionMode() {
+    if (!settings.enabled) return;
+
+    const hasCC = hasCaptions();
+
+    // 状态未变化，不处理
+    if (hasCC === lastCaptionState) return;
+    lastCaptionState = hasCC;
+
+    if (hasCC) {
+      // 有 CC 字幕，关闭 OCR，使用字幕翻译
+      if (settings.ocrMode) {
+        settings.ocrMode = false;
+        stopOCR();
+        await chrome.storage.sync.set({ ocrMode: false });
+        syncPanelWithSettings();
+      }
+    } else {
+      // 无 CC 字幕，检查是否可以启用 AI 视觉
+      if (!settings.ocrMode && canUseAIVision()) {
+        settings.ocrMode = true;
+        await chrome.storage.sync.set({ ocrMode: true });
+        syncPanelWithSettings();
+        startOCR();
+      }
+    }
+  }
+
+  /**
+   * 启动自动检测
+   */
+  function startAutoDetect() {
+    // 初始检测延迟 3 秒，等待视频和字幕加载
+    setTimeout(() => {
+      autoDetectCaptionMode();
+      // 之后每 5 秒检测一次
+      autoDetectTimer = setInterval(autoDetectCaptionMode, 5000);
+    }, 3000);
+  }
 
   // ========== 启动 ==========
 
@@ -1634,5 +1880,11 @@
     setupFullscreenListener();
     startObserver();
     createToggleButton();
+    startAutoDetect();
+
+    // 如果已启用 OCR 模式，立即启动
+    if (settings.enabled && settings.ocrMode) {
+      setTimeout(() => startOCR(), 1000);
+    }
   });
 })();

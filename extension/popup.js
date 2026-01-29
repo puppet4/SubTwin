@@ -5,6 +5,8 @@
 // 页面元素
 const elements = {
   enabled: document.getElementById("enabled"),
+  ocrMode: document.getElementById("ocrMode"),
+  dotOcr: document.getElementById("dotOcr"),
   translator: document.getElementById("translator"),
   apiKey: document.getElementById("apiKey"),
   apiKeyRow: document.getElementById("apiKeyRow"),
@@ -46,7 +48,6 @@ const translatorConfig = {
     needsBaiduAppId: false,
     apiKeyHint: "从 DeepL 获取 API Key (免费版以 :fx 结尾)",
     defaultEndpoint: "https://api-free.deepl.com/v2/translate",
-    endpointHint: "免费版使用 api-free.deepl.com，Pro 版使用 api.deepl.com",
   },
   baidu: {
     needsApiKey: true,
@@ -87,12 +88,17 @@ const translatorConfig = {
   },
 };
 
+// 更新状态指示点
+function updateDots() {
+  const ocr = elements.ocrMode.checked;
+  elements.dotOcr.className = `dot ${ocr ? "blue" : "gray"}`;
+}
+
 // 根据翻译源显示/隐藏相关设置
 function updateTranslatorSettings() {
   const translator = elements.translator.value;
   const config = translatorConfig[translator] || {};
 
-  // API Key
   if (config.needsApiKey) {
     elements.apiKeyRow.classList.add("show");
     elements.apiKeyHint.textContent = config.apiKeyHint || "";
@@ -100,31 +106,22 @@ function updateTranslatorSettings() {
     elements.apiKeyRow.classList.remove("show");
   }
 
-  // 百度 AppID
   if (config.needsBaiduAppId) {
     elements.baiduAppIdRow.classList.add("show");
   } else {
     elements.baiduAppIdRow.classList.remove("show");
   }
 
-  // 自定义端点
   if (config.needsEndpoint) {
     elements.apiEndpointRow.classList.add("show");
-    // 显示默认端点作为 placeholder
-    if (config.defaultEndpoint) {
-      elements.apiEndpoint.placeholder = config.defaultEndpoint;
-    } else {
-      elements.apiEndpoint.placeholder = "留空使用默认端点";
-    }
+    elements.apiEndpoint.placeholder = config.defaultEndpoint || "留空使用默认端点";
   } else {
     elements.apiEndpointRow.classList.remove("show");
   }
 
-  // AI 模型
   if (config.needsModel) {
     elements.aiModelRow.classList.add("show");
     elements.aiModelHint.textContent = config.modelHint || "";
-    // 显示默认模型作为 placeholder
     if (config.defaultModel) {
       elements.aiModel.placeholder = config.defaultModel;
     }
@@ -137,6 +134,7 @@ function updateTranslatorSettings() {
 async function loadSettings() {
   const settings = await chrome.storage.sync.get({
     enabled: true,
+    ocrMode: false,
     translator: "google",
     apiKey: "",
     baiduAppId: "",
@@ -150,6 +148,7 @@ async function loadSettings() {
   });
 
   elements.enabled.checked = settings.enabled;
+  elements.ocrMode.checked = settings.ocrMode;
   elements.translator.value = settings.translator;
   elements.apiKey.value = settings.apiKey;
   elements.baiduAppId.value = settings.baiduAppId;
@@ -163,12 +162,14 @@ async function loadSettings() {
   elements.bgOpacity.value = settings.bgOpacity;
 
   updateTranslatorSettings();
+  updateDots();
 }
 
 // 保存设置
 async function saveSettings() {
   const settings = {
     enabled: elements.enabled.checked,
+    ocrMode: elements.ocrMode.checked,
     translator: elements.translator.value,
     apiKey: elements.apiKey.value,
     baiduAppId: elements.baiduAppId.value,
@@ -182,20 +183,32 @@ async function saveSettings() {
   };
 
   await chrome.storage.sync.set(settings);
+  updateDots();
 
-  // 通知所有 YouTube 标签页更新设置
-  const tabs = await chrome.tabs.query({ url: "https://www.youtube.com/*" });
-  tabs.forEach((tab) => {
-    chrome.tabs.sendMessage(tab.id, {
-      action: "updateSettings",
-      settings: settings,
-    }).catch(() => {
-      // 忽略未连接的标签页
+  // 通知所有标签页
+  const urls = [
+    "https://www.youtube.com/*",
+    "https://www.bilibili.com/*"
+  ];
+
+  for (const url of urls) {
+    const tabs = await chrome.tabs.query({ url });
+    tabs.forEach((tab) => {
+      chrome.tabs.sendMessage(tab.id, {
+        action: "updateSettings",
+        settings: settings,
+      }).catch(() => {});
     });
-  });
+  }
 }
 
-// 同步颜色选择器和输入框
+// 总开关
+elements.enabled.addEventListener("change", saveSettings);
+
+// OCR 开关
+elements.ocrMode.addEventListener("change", saveSettings);
+
+// 颜色同步
 elements.fontColorPicker.addEventListener("input", (e) => {
   elements.fontColor.value = e.target.value;
   saveSettings();
@@ -209,14 +222,13 @@ elements.fontColor.addEventListener("input", (e) => {
   }
 });
 
-// 翻译源变化时更新显示
+// 翻译源变化
 elements.translator.addEventListener("change", () => {
   updateTranslatorSettings();
   saveSettings();
 });
 
-// 监听所有设置变化
-elements.enabled.addEventListener("change", saveSettings);
+// 监听其他设置变化
 elements.apiKey.addEventListener("input", saveSettings);
 elements.baiduAppId.addEventListener("input", saveSettings);
 elements.apiEndpoint.addEventListener("input", saveSettings);
@@ -230,12 +242,19 @@ elements.bgOpacity.addEventListener("input", saveSettings);
 elements.resetPosition.addEventListener("click", async () => {
   await chrome.storage.sync.remove("subtitlePosition");
 
-  const tabs = await chrome.tabs.query({ url: "https://www.youtube.com/*" });
-  tabs.forEach((tab) => {
-    chrome.tabs.sendMessage(tab.id, {
-      action: "resetPosition",
-    }).catch(() => {});
-  });
+  const urls = [
+    "https://www.youtube.com/*",
+    "https://www.bilibili.com/*"
+  ];
+
+  for (const url of urls) {
+    const tabs = await chrome.tabs.query({ url });
+    tabs.forEach((tab) => {
+      chrome.tabs.sendMessage(tab.id, {
+        action: "resetPosition",
+      }).catch(() => {});
+    });
+  }
 });
 
 // 初始化
