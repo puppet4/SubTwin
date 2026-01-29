@@ -1,6 +1,6 @@
 /**
- * SubTwin - YouTube 字幕翻译插件
- * Phase 10: 翻译服务扩展
+ * SubTwin - 视频字幕翻译插件
+ * 支持平台：YouTube、Bilibili
  * - 多翻译源：Google、MyMemory、DeepL、百度、DeepSeek、OpenAI、GLM
  * - 源语言自动检测
  * - 自定义 API 端点
@@ -11,9 +11,47 @@
 
   console.log("[SubTwin] 插件已加载");
 
-  // YouTube 字幕容器选择器
-  const CAPTION_CONTAINER_SELECTOR = ".ytp-caption-window-container";
-  const CAPTION_SEGMENT_SELECTOR = ".ytp-caption-segment";
+  // 平台配置
+  const PLATFORM_CONFIG = {
+    youtube: {
+      name: "YouTube",
+      captionContainer: ".ytp-caption-window-container",
+      captionSegment: ".ytp-caption-segment",
+      player: ".html5-video-player",
+      rightControls: ".ytp-right-controls",
+      buttonClass: "ytp-button",
+      buttonWidth: "48px",
+      iconSize: "24",
+    },
+    bilibili: {
+      name: "Bilibili",
+      captionContainer: ".bpx-player-subtitle-panel",
+      captionSegment: ".bpx-player-subtitle-panel-text",
+      player: ".bpx-player-container",
+      rightControls: ".bpx-player-control-bottom-right",
+      buttonClass: "bpx-player-ctrl-btn",
+      buttonWidth: "36px",
+      iconSize: "18",
+    },
+  };
+
+  // 平台检测
+  function detectPlatform() {
+    const host = window.location.hostname;
+    if (host.includes("youtube.com")) return "youtube";
+    if (host.includes("bilibili.com")) return "bilibili";
+    return null;
+  }
+
+  let currentPlatform = detectPlatform();
+  let platformConfig = currentPlatform ? PLATFORM_CONFIG[currentPlatform] : null;
+
+  if (!currentPlatform) {
+    console.log("[SubTwin] 不支持的平台");
+    return;
+  }
+
+  console.log(`[SubTwin] 检测到平台: ${platformConfig.name}`);
 
   // 预翻译配置
   const PRE_TRANSLATE_MIN_LENGTH = 15;
@@ -136,7 +174,7 @@
       return;
     }
 
-    const rightControls = document.querySelector(".ytp-right-controls");
+    const rightControls = document.querySelector(platformConfig.rightControls);
     if (!rightControls) {
       setTimeout(createToggleButton, 1000);
       return;
@@ -144,11 +182,11 @@
 
     // 创建按钮容器
     toggleButton = document.createElement("button");
-    toggleButton.className = "ytp-button subtwin-toggle";
+    toggleButton.className = `${platformConfig.buttonClass} subtwin-toggle`;
     toggleButton.title = "SubTwin 翻译设置";
     toggleButton.style.cssText = `
       position: relative;
-      width: 48px;
+      width: ${platformConfig.buttonWidth};
       height: 100%;
       padding: 0;
       border: none;
@@ -158,16 +196,21 @@
       transition: opacity 0.1s;
     `;
 
+    const iconSize = platformConfig.iconSize;
+    const statusSize = currentPlatform === 'bilibili' ? '6' : '8';
+    const statusBottom = currentPlatform === 'bilibili' ? '4px' : '6px';
+    const statusRight = currentPlatform === 'bilibili' ? '6px' : '8px';
+
     toggleButton.innerHTML = `
-      <svg viewBox="0 0 24 24" width="24" height="24" style="fill: currentColor;">
+      <svg viewBox="0 0 24 24" width="${iconSize}" height="${iconSize}" style="fill: currentColor;">
         <path d="M12.87 15.07l-2.54-2.51.03-.03A17.52 17.52 0 0014.07 6H17V4h-7V2H8v2H1v2h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z"/>
       </svg>
       <div class="subtwin-status" style="
         position: absolute;
-        bottom: 6px;
-        right: 8px;
-        width: 8px;
-        height: 8px;
+        bottom: ${statusBottom};
+        right: ${statusRight};
+        width: ${statusSize}px;
+        height: ${statusSize}px;
         border-radius: 50%;
         background: ${settings.enabled ? "#4CAF50" : "#666"};
         border: 1.5px solid rgba(0,0,0,0.3);
@@ -177,6 +220,10 @@
 
     toggleButton.addEventListener("mouseenter", () => {
       toggleButton.style.opacity = "1";
+      // 悬停时检测字幕，如果没有就显示提示
+      if (!hasCaptions()) {
+        showToast("未检测到字幕，无法开启翻译");
+      }
     });
 
     toggleButton.addEventListener("mouseleave", () => {
@@ -212,7 +259,7 @@
    * 创建设置面板
    */
   function createSettingsPanel() {
-    const playerContainer = document.querySelector(".html5-video-player");
+    const playerContainer = document.querySelector(platformConfig.player);
     if (!playerContainer) return;
 
     settingsPanel = document.createElement("div");
@@ -505,10 +552,78 @@
   }
 
   /**
+   * 检测是否存在字幕
+   */
+  function hasCaptions() {
+    const container = document.querySelector(platformConfig.captionContainer);
+    if (container) return true;
+    // 也检查是否有字幕片段
+    const segments = document.querySelectorAll(platformConfig.captionSegment);
+    return segments.length > 0;
+  }
+
+  /**
+   * 显示浮动提示（在按钮上方）
+   */
+  function showToast(message) {
+    const playerContainer = document.querySelector(platformConfig.player);
+    if (!playerContainer || !toggleButton) return;
+
+    // 移除已有提示
+    const existing = playerContainer.querySelector("#subtwin-toast");
+    if (existing) existing.remove();
+
+    const toast = document.createElement("div");
+    toast.id = "subtwin-toast";
+    toast.textContent = message;
+    toast.style.cssText = `
+      position: absolute;
+      background: rgba(28, 28, 28, 0.95);
+      color: #fff;
+      padding: 10px 16px;
+      border-radius: 6px;
+      font-size: 14px;
+      z-index: 200;
+      white-space: nowrap;
+      pointer-events: none;
+      opacity: 1;
+      transition: opacity 0.3s ease;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    `;
+
+    playerContainer.appendChild(toast);
+
+    // 定位到按钮上方
+    const playerRect = playerContainer.getBoundingClientRect();
+    const buttonRect = toggleButton.getBoundingClientRect();
+    const toastRect = toast.getBoundingClientRect();
+
+    const right = playerRect.right - buttonRect.right + (buttonRect.width - toastRect.width) / 2;
+    const bottom = playerRect.bottom - buttonRect.top + 8;
+
+    toast.style.right = `${Math.max(8, right)}px`;
+    toast.style.bottom = `${bottom}px`;
+
+    // 鼠标移开按钮时消失
+    const hideToast = () => {
+      toast.style.opacity = "0";
+      setTimeout(() => toast.remove(), 300);
+      toggleButton.removeEventListener("mouseleave", hideToast);
+    };
+    toggleButton.addEventListener("mouseleave", hideToast);
+  }
+
+  /**
    * 切换设置面板显示
    */
   function toggleSettingsPanel() {
     if (!settingsPanel) return;
+
+    // 检测是否有字幕
+    if (!hasCaptions()) {
+      showToast("未检测到字幕，无法开启翻译");
+      return;
+    }
 
     if (settingsPanel.style.display === "none") {
       showSettingsPanel();
@@ -524,7 +639,7 @@
     if (!settingsPanel || !toggleButton) return;
 
     // 计算按钮位置，将菜单定位到按钮正上方
-    const playerContainer = document.querySelector(".html5-video-player");
+    const playerContainer = document.querySelector(platformConfig.player);
     if (playerContainer) {
       const playerRect = playerContainer.getBoundingClientRect();
       const buttonRect = toggleButton.getBoundingClientRect();
@@ -599,7 +714,7 @@
       return translationOverlay;
     }
 
-    const playerContainer = document.querySelector(".html5-video-player");
+    const playerContainer = document.querySelector(platformConfig.player);
     if (!playerContainer) {
       return null;
     }
@@ -812,7 +927,7 @@
   // ========== 字幕处理 ==========
 
   function getCaptionText() {
-    const segments = document.querySelectorAll(CAPTION_SEGMENT_SELECTOR);
+    const segments = document.querySelectorAll(platformConfig.captionSegment);
     if (segments.length === 0) {
       return null;
     }
@@ -1479,7 +1594,7 @@
         ) {
           const target = mutation.target;
 
-          if (target.closest && target.closest(CAPTION_CONTAINER_SELECTOR)) {
+          if (target.closest && target.closest(platformConfig.captionContainer)) {
             onCaptionChange();
             break;
           }
@@ -1487,13 +1602,13 @@
           if (mutation.addedNodes.length > 0) {
             for (const node of mutation.addedNodes) {
               if (node.nodeType === Node.ELEMENT_NODE) {
-                if (node.matches && node.matches(CAPTION_CONTAINER_SELECTOR)) {
+                if (node.matches && node.matches(platformConfig.captionContainer)) {
                   onCaptionChange();
                   break;
                 }
                 if (
                   node.querySelector &&
-                  node.querySelector(CAPTION_CONTAINER_SELECTOR)
+                  node.querySelector(platformConfig.captionContainer)
                 ) {
                   onCaptionChange();
                   break;
@@ -1511,7 +1626,7 @@
       characterData: true,
     });
 
-    console.log("[SubTwin] 字幕监听已启动（翻译服务扩展版）");
+    console.log(`[SubTwin] 字幕监听已启动 (${platformConfig.name})`);
   }
 
   // 初始化
